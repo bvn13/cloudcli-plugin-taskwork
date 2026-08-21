@@ -9,6 +9,28 @@ refuses to run otherwise.
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-08-21
+
+Both fixes come from the first run on a real host.
+
+### Fixed
+- **An attachment no longer adopts a session that predates it.** The "latest
+  session of the project" heuristic picked up an old conversation for any project
+  that already had chats, and clicking the node reopened it instead of the new
+  chat. A session now counts only if it was created after `attachedAt`.
+- **The tree rendered unstyled.** The host publishes its palette as raw HSL
+  triples (`--accent: 44 15% 91%`), so `var(--accent)` was not a valid colour and
+  every rule using it was dropped — no hover, no rails, no accents.
+
+### Changed
+- The section now mirrors the host's own project list: same row padding and
+  radius, the same hover accent, a left rail under an expanded task, two-line
+  rows (project over session) and primary-coloured action buttons.
+- Icons are inline SVG in the host's lucide style, built through the DOM.
+- E8 (`PATCH /tasks/:taskId/attachments/:projectId`) is now called by the UI: the
+  first session that qualifies is pinned, so the binding stops moving with later
+  sessions. It was previously implemented and tested but unused.
+
 ## [1.0.0] — 2026-08-21
 
 The sidebar release: with the host patches applied, `Tasks` sits in the sidebar

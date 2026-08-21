@@ -56,6 +56,13 @@ function fakeApi({ tasks = [], locked = [], project = null, host, surface } = {}
         tasks = [task, ...tasks];
         return { task };
       }
+      if (method === 'PATCH' && /\/attachments\//.test(endpoint)) {
+        const projectId = endpoint.split('/').pop();
+        const task = tasks[0];
+        task.attachments = task.attachments.map((a) =>
+          (a.projectId === projectId ? { ...a, sessionId: body.sessionId } : a));
+        return { task };
+      }
       if (method === 'POST' && /\/attachments$/.test(endpoint)) {
         if (locked.includes(body.projectId)) throw new Error('RPC error 409');
         const task = tasks[0];
@@ -413,9 +420,61 @@ describe('taskwork frontend', () => {
     await settle();
 
     assert.deepEqual(started, ['proj_a']);
-    assert.match(container.textContent, /digital-ui — New chat/);
+    // Title and session live on separate lines, as in the host's own session rows.
+    assert.match(container.textContent, /digital-ui/);
+    assert.match(container.textContent, /New chat/);
     assert.equal(opened.length, 0);
 
+    unmount(container);
+  });
+
+  it('an attachment never adopts a session that predates it', async () => {
+    globalThis.localStorage.setItem('taskwork:expanded', JSON.stringify(['tsk_1']));
+
+    const attachedAt = '2026-08-21T12:00:00.000Z';
+    const sessionsOf = (createdAt) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ sessions: [{ id: 'sess_old', title: 'Yesterday’s chat', createdAt }] }),
+    });
+
+    const withSession = (createdAt) => {
+      const task = sample({
+        attachments: [{ projectId: 'proj_a', projectName: 'digital-ui', attachedAt, sessionId: null }],
+      });
+      return fakeApi({
+        tasks: [task],
+        host: {
+          fetch: async (url) => (url.startsWith('/api/projects?')
+            ? { ok: true, status: 200, json: async () => [{ projectId: 'proj_a', displayName: 'digital-ui', fullPath: '/p' }] }
+            : sessionsOf(createdAt)),
+          startNewSession() {},
+          openSession() {},
+        },
+      });
+    };
+
+    // Session created before the attachment: the node stays a pending new chat.
+    const container = dom.document.createElement('div');
+    dom.document.body.appendChild(container);
+    const staleApi = withSession('2026-08-20T09:00:00.000Z');
+    mount(container, staleApi);
+    await settle();
+
+    assert.match(container.textContent, /New chat/);
+    assert.doesNotMatch(container.textContent, /Yesterday/);
+    assert.equal(staleApi.calls.filter((c) => c.method === 'PATCH').length, 0, 'nothing to bind');
+    unmount(container);
+
+    // Session created after the attachment: adopted and pinned through E8.
+    const freshApi = withSession('2026-08-21T12:00:05.000Z');
+    mount(container, freshApi);
+    await settle();
+
+    assert.match(container.textContent, /Yesterday’s chat/);
+    const bind = freshApi.calls.find((c) => c.method === 'PATCH');
+    assert.ok(bind, 'the session is pinned with E8');
+    assert.deepEqual(bind.body, { sessionId: 'sess_old' });
     unmount(container);
   });
 

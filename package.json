@@ -1,6 +1,6 @@
 {
   "name": "cloudcli-plugin-taskwork",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Organizes LLM sessions into a task tree with exclusive project locking.",
   "author": "bvn13",
   "license": "AGPL-3.0-or-later",

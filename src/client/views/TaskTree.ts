@@ -28,6 +28,11 @@ export interface ViewState {
 }
 
 export interface AttachmentView {
+  /** Title line: the project, named as the host names it today. */
+  projectName: string;
+  /** Subtitle line: the session this attachment points at, or its absence. */
+  sessionLabel: string;
+  /** Both lines joined — used for the accessible name. */
   label: string;
   clickable: boolean;
   pending: boolean;

@@ -63,34 +63,37 @@ function currentProjectName(instance: Instance): string {
   return known?.displayName ?? basename(project.path) ?? project.name;
 }
 
+function view(
+  projectName: string,
+  sessionLabel: string,
+  rest: { clickable: boolean; pending: boolean; removed: boolean },
+): AttachmentView {
+  return { projectName, sessionLabel, label: `${projectName} — ${sessionLabel}`, ...rest };
+}
+
 function describeAttachment(instance: Instance, _task: Task, attachment: Attachment): AttachmentView {
   const known = instance.projects.find((project) => project.projectId === attachment.projectId);
   // A renamed project shows its current name; the snapshot is only a fallback (§11).
   const name = known?.displayName ?? attachment.projectName;
 
   if (!instance.caps.canFetchHost) {
-    return { label: `${name} — (open in Chat)`, clickable: false, pending: false, removed: false };
+    return view(name, 'Open in Chat', { clickable: false, pending: false, removed: false });
   }
 
   if (instance.projectsLoaded && !known) {
-    return { label: `${name} — (project removed)`, clickable: false, pending: false, removed: true };
+    return view(name, 'Project removed', { clickable: false, pending: false, removed: true });
   }
 
   if (!instance.sessions.has(attachment.projectId)) {
-    return { label: `${name} — …`, clickable: false, pending: false, removed: false };
+    return view(name, '…', { clickable: false, pending: false, removed: false });
   }
 
   const session = instance.sessions.get(attachment.projectId) ?? null;
   if (!session) {
-    return { label: `${name} — New chat`, clickable: instance.caps.canNavigate, pending: true, removed: false };
+    return view(name, 'New chat', { clickable: instance.caps.canNavigate, pending: true, removed: false });
   }
 
-  return {
-    label: `${name} — ${session.title}`,
-    clickable: instance.caps.canNavigate,
-    pending: false,
-    removed: false,
-  };
+  return view(name, session.title, { clickable: instance.caps.canNavigate, pending: false, removed: false });
 }
 
 /** One description of the surface, shared by rendering and by the keyboard handler. */
@@ -267,21 +270,52 @@ async function loadProjects(instance: Instance): Promise<void> {
   }
 }
 
-/** Heuristic "latest session of the project" — the host emits no session events (D-2). */
+/**
+ * Resolves each attachment's session without any help from the host (D-2).
+ *
+ * A bound `sessionId` wins. Otherwise the project's newest session counts only
+ * if it was created **after** the attachment: a project that already had chats
+ * would otherwise adopt an old one the moment it is attached, and clicking the
+ * node would reopen that old conversation instead of the new chat the user just
+ * started. Once a genuinely new session appears it is written back through E8,
+ * so the binding survives later sessions.
+ */
 async function loadSessions(instance: Instance): Promise<void> {
   if (!instance.caps.canFetchHost || instance.authExpired) return;
 
-  const projectIds = new Set(
-    instance.store.getState().tasks.flatMap((task) => task.attachments.map((a) => a.projectId)),
+  const attachments = instance.store.getState().tasks.flatMap(
+    (task) => task.attachments.map((attachment) => ({ taskId: task.id, attachment })),
   );
+  const projectIds = new Set(attachments.map(({ attachment }) => attachment.projectId));
 
   let changed = false;
-  for (const projectId of projectIds) {
+  for (const { taskId, attachment } of attachments) {
+    const projectId = attachment.projectId;
     try {
       const sessions = await instance.bridge.listSessions(projectId, 1);
       if (instance.disposed) return;
-      instance.sessions.set(projectId, sessions[0] ?? null);
+
+      const newest = sessions[0] ?? null;
+      const bound = attachment.sessionId
+        ? sessions.find((session) => session.id === attachment.sessionId) ?? {
+          id: attachment.sessionId,
+          title: newest?.id === attachment.sessionId ? newest.title : 'Session',
+          createdAt: null,
+        }
+        : null;
+
+      const startedAfterAttach = Boolean(
+        newest?.createdAt && newest.createdAt > attachment.attachedAt,
+      );
+      const resolved = bound ?? (startedAfterAttach ? newest : null);
+
+      instance.sessions.set(projectId, resolved);
       changed = true;
+
+      // First sighting of the session this attachment created: pin it (E8).
+      if (!attachment.sessionId && resolved) {
+        await instance.store.bindSession(taskId, projectId, resolved.id);
+      }
     } catch (error) {
       reportHostError(instance, error);
       if (instance.authExpired) return;

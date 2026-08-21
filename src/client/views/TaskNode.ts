@@ -1,6 +1,15 @@
 import type { Task } from '../../shared/types.js';
 import { formatCompactAge } from '../../shared/age.js';
-import { el, focusSoon, iconButton } from '../dom.js';
+import {
+  ICON_CHEVRON_DOWN,
+  ICON_CHEVRON_RIGHT,
+  ICON_LIST,
+  ICON_TRASH,
+  el,
+  focusSoon,
+  icon,
+  iconButton,
+} from '../dom.js';
 import type { TreeContext } from './TaskTree.js';
 
 export const AGE_ATTR = 'data-created-at';
@@ -52,6 +61,13 @@ function createInlineInput(options: {
   return input;
 }
 
+/** Subtitle under a task title, mirroring the project row's session count. */
+function attachmentSummary(task: Task): string {
+  const count = task.attachments.length;
+  if (count === 0) return 'No projects';
+  return count === 1 ? '1 project' : `${count} projects`;
+}
+
 /** The unsaved task row: it lives directly under the `+` button until Enter or blur. */
 export function createDraftNode(context: TreeContext): HTMLElement {
   const input = createInlineInput({
@@ -66,7 +82,10 @@ export function createDraftNode(context: TreeContext): HTMLElement {
 
   const row = el('div', {
     className: 'tw-node tw-node-task tw-node-draft',
-    children: [el('span', { className: 'tw-chevron' }), input],
+    children: [
+      el('span', { className: 'tw-node-icon', children: [icon(ICON_LIST)] }),
+      input,
+    ],
   });
 
   return el('div', {
@@ -93,8 +112,7 @@ export function createTaskNode(context: TreeContext, task: Task, now: Date): HTM
     },
   });
 
-  const chevron = el('span', { className: 'tw-chevron', text: expanded ? '▾' : '▸', attrs: { 'aria-hidden': 'true' } });
-  row.appendChild(chevron);
+  row.appendChild(el('span', { className: 'tw-node-icon', children: [icon(ICON_LIST)] }));
 
   if (editing) {
     row.appendChild(createInlineInput({
@@ -107,23 +125,33 @@ export function createTaskNode(context: TreeContext, task: Task, now: Date): HTM
       onBlur: (value) => context.callbacks.commitRename(task.id, value),
     }));
   } else {
-    const label = el('span', { className: 'tw-node-label', text: task.title, title: task.title });
-    label.addEventListener('dblclick', (event) => {
+    const title = el('div', { className: 'tw-node-title', text: task.title, title: task.title });
+    const text = el('div', {
+      className: 'tw-node-text',
+      children: [title, el('div', { className: 'tw-node-subtitle', text: attachmentSummary(task) })],
+    });
+    text.addEventListener('dblclick', (event) => {
       event.stopPropagation();
       context.callbacks.startRename(task.id);
     });
-    row.appendChild(label);
+    row.appendChild(text);
 
     const age = el('span', { className: 'tw-age', text: formatCompactAge(task.createdAt, now) });
     age.setAttribute(AGE_ATTR, task.createdAt);
     row.appendChild(age);
 
-    const remove = iconButton('tw-icon', `Delete task ${task.title}`, '×');
+    const remove = iconButton('tw-icon tw-icon-danger', `Delete task ${task.title}`, icon(ICON_TRASH));
     remove.addEventListener('click', (event) => {
       event.stopPropagation();
       context.callbacks.requestDelete({ kind: 'task', taskId: task.id });
     });
     row.appendChild(remove);
+
+    row.appendChild(el('span', {
+      className: 'tw-chevron',
+      attrs: { 'aria-hidden': 'true' },
+      children: [icon(expanded ? ICON_CHEVRON_DOWN : ICON_CHEVRON_RIGHT)],
+    }));
 
     row.addEventListener('click', () => context.callbacks.toggle(task.id));
   }

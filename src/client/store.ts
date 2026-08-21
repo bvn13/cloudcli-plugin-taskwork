@@ -137,6 +137,26 @@ export class TaskStore {
     return this.mutate('POST', `/tasks/${encodeURIComponent(taskId)}/attachments`, { projectId, projectName });
   }
 
+  /**
+   * Pins the session an attachment ended up with (E8). Deliberately does not
+   * re-read the tree: this fires from the session poll, and a full reload there
+   * would fight with whatever the user is doing.
+   */
+  async bindSession(taskId: string, projectId: string, sessionId: string): Promise<void> {
+    try {
+      const response = await this.api.rpc(
+        'PATCH',
+        `/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(projectId)}`,
+        { sessionId },
+      ) as TaskResponse;
+
+      const task = response.task;
+      this.patch({ tasks: this.state.tasks.map((candidate) => (candidate.id === task.id ? task : candidate)) });
+    } catch {
+      // Non-fatal: the attachment stays unbound and the heuristic runs again.
+    }
+  }
+
   detachProject(taskId: string, projectId: string): Promise<MutationResult> {
     return this.mutate(
       'DELETE',

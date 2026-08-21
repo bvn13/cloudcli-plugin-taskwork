@@ -54,8 +54,15 @@ The plugin uses exactly two endpoints:
 `GET /api/projects?skipSync=1` and `GET /api/projects/:projectId/sessions?limit=1&offset=0`.
 
 Because the host emits no "session created" event, a fresh attachment stays
-`pending` and the child node shows the project's latest session as soon as one
-exists — a deliberate heuristic, documented as such.
+`pending` until a session that was created **after** `attachedAt` shows up in the
+project's session list. Comparing against the attachment timestamp is what keeps
+a project with existing chats from silently adopting an old conversation — and
+from reopening it when the node is clicked. The first session that qualifies is
+pinned through E8, so the binding no longer moves as newer sessions appear.
+
+The remaining gap is inherent to the heuristic: the host creates the chat
+immediately, but a session row only exists after the first message, so until
+then the node reads `New chat`.
 
 ## What PR-3 adds — the sidebar surface
 
@@ -100,6 +107,6 @@ the plugin reads it as a stock host and keeps working; adapting means editing
 Errors are `{ error: { code, message } }` with `400 VALIDATION_ERROR`,
 `404 NOT_FOUND`, `409 PROJECT_ALREADY_ATTACHED`, `500 INTERNAL_ERROR`.
 
-E8 exists and is tested but is not called by the UI: without a session-created
-event there is no reliable moment to call it. It stays as the extension point for
-when the host gains one.
+E8 is called once per attachment, the first time a session created after
+`attachedAt` is observed. That is the only moment the plugin can be sure which
+session belongs to the attachment without a session-created event from the host.

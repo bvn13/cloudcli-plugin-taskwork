@@ -1,6 +1,6 @@
 import type { Task } from '../../shared/types.js';
 import type { HostProject } from '../host-bridge.js';
-import { el } from '../dom.js';
+import { ICON_FOLDER, ICON_PLUS, el, icon } from '../dom.js';
 import type { TreeContext } from './TaskTree.js';
 
 /** Projects are offered by their display name, never by path (§9.6, step 4). */
@@ -30,9 +30,12 @@ function createAttachCurrentButton(context: TreeContext, task: Task): HTMLElemen
   const displayName = context.currentProjectName;
 
   const button = el('button', {
-    className: 'tw-button tw-button-wide tw-button-quiet',
-    text: project ? `+ Attach “${displayName}”` : '+ Attach current project',
+    className: 'tw-button tw-button-wide',
     attrs: { type: 'button', 'data-role': 'attach-current' },
+    children: [
+      icon(ICON_PLUS),
+      el('span', { text: project ? `Attach “${displayName}”` : 'Attach current project' }),
+    ],
   });
 
   const hint = !project
@@ -83,9 +86,9 @@ function createListbox(context: TreeContext, task: Task): HTMLElement {
   for (const project of options) {
     const option = el('button', {
       className: 'tw-option',
-      text: project.displayName,
       title: project.fullPath || project.displayName,
       attrs: { type: 'button', role: 'option', 'aria-selected': 'false' },
+      children: [icon(ICON_FOLDER), el('span', { text: project.displayName })],
     });
     option.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -125,9 +128,9 @@ export function createProjectPicker(context: TreeContext, task: Task): HTMLEleme
 
   if (context.view.pickerTaskId !== task.id) {
     const button = el('button', {
-      className: 'tw-button tw-button-wide tw-button-quiet',
-      text: '+ Add project',
+      className: 'tw-button tw-button-wide',
       attrs: { type: 'button', 'data-role': 'add-project' },
+      children: [icon(ICON_PLUS), el('span', { text: 'Add project' })],
     });
     button.addEventListener('click', (event) => {
       event.stopPropagation();

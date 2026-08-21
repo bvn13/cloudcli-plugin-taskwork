@@ -280,6 +280,17 @@ class FakeDocument extends FakeElement {
     return new FakeElement(tagName);
   }
 
+  /** SVG icons are built through the namespaced API; the shim treats them as plain elements. */
+  createElementNS(_namespace, tagName) {
+    return new FakeElement(tagName);
+  }
+
+  createTextNode(text) {
+    const node = new FakeElement('#text');
+    node.ownText = String(text);
+    return node;
+  }
+
   getElementById(id) {
     return this.querySelectorAll(`[id="${id}"]`)[0] ?? null;
   }

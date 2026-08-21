@@ -1,19 +1,29 @@
 const STYLE_ID = 'taskwork-styles';
 
 /**
- * Colours come from the host's own CSS variables so the plugin follows the
- * active theme; every one has a fallback for hosts that do not define it.
- * All selectors are `.tw-` prefixed and scoped under `.tw-root`.
+ * The look is deliberately borrowed from the host's own project list, so the
+ * task tree reads as part of the sidebar rather than as an embedded widget:
+ * the same row padding, radius, hover accent, left rail under a parent node and
+ * the same primary-coloured action button.
+ *
+ * The host publishes its palette as **raw HSL triples** (`--accent: 44 15% 91%`),
+ * not as finished colours, so every reference has to go through
+ * `hsl(var(--x) / a)` with a triple as the fallback. Using `var(--accent)`
+ * directly yields an invalid colour and the element silently renders unstyled.
  */
 const CSS = `
 .tw-root {
-  --tw-fg: var(--foreground, #e5e7eb);
-  --tw-bg: var(--background, transparent);
-  --tw-muted: var(--muted-foreground, #9ca3af);
-  --tw-border: var(--border, rgba(127, 127, 127, 0.3));
-  --tw-accent: var(--accent, rgba(127, 127, 127, 0.16));
-  --tw-primary: var(--primary, #3b82f6);
-  --tw-row: 32px;
+  --tw-fg: hsl(var(--foreground, 0 0% 10%));
+  --tw-muted: hsl(var(--muted-foreground, 0 0% 45%));
+  --tw-border: hsl(var(--border, 0 0% 85%));
+  --tw-accent: hsl(var(--accent, 0 0% 92%));
+  --tw-accent-soft: hsl(var(--accent, 0 0% 92%) / 0.5);
+  --tw-accent-fg: hsl(var(--accent-foreground, 0 0% 10%));
+  --tw-primary: hsl(var(--primary, 221 83% 53%));
+  --tw-primary-hover: hsl(var(--primary, 221 83% 53%) / 0.9);
+  --tw-primary-fg: hsl(var(--primary-foreground, 0 0% 100%));
+  --tw-danger: hsl(var(--destructive, 0 84% 60%));
+  --tw-ring: hsl(var(--ring, 221 83% 53%));
 
   display: flex;
   flex-direction: column;
@@ -21,111 +31,160 @@ const CSS = `
   box-sizing: border-box;
   height: 100%;
   overflow: auto;
-  padding: 8px;
+  padding: 8px 6px;
   color: var(--tw-fg);
-  background: var(--tw-bg);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.35;
 }
 .tw-root *, .tw-root *::before, .tw-root *::after { box-sizing: border-box; }
+.tw-root :focus-visible { outline: 2px solid var(--tw-ring); outline-offset: 1px; }
 
 .tw-surface-tab { max-width: 720px; margin: 0 auto; padding: 16px; }
-.tw-surface-sidebar { padding: 6px 8px; }
 
+/* ── banners ─────────────────────────────────────────────────────────── */
 .tw-banner {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 6px 8px; border: 1px solid var(--tw-border); border-radius: 6px;
+  margin: 0 2px 4px; padding: 6px 10px;
+  border: 1px solid var(--tw-border); border-radius: 8px;
   color: var(--tw-muted); font-size: 12px;
 }
-.tw-banner-error { color: var(--tw-fg); border-color: #ef4444; }
-.tw-banner button { font-size: 12px; }
+.tw-banner-error { color: var(--tw-fg); border-color: var(--tw-danger); }
 
-.tw-toolbar { display: flex; align-items: center; gap: 6px; }
-
+/* ── buttons ─────────────────────────────────────────────────────────── */
 .tw-button {
-  display: inline-flex; align-items: center; gap: 6px;
-  min-height: var(--tw-row); padding: 4px 8px;
-  border: 1px solid var(--tw-border); border-radius: 6px;
-  background: transparent; color: inherit; font: inherit; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 32px; padding: 0 10px;
+  border: none; border-radius: 6px;
+  background: var(--tw-primary); color: var(--tw-primary-fg);
+  font: inherit; font-size: 12px; font-weight: 500;
+  cursor: pointer; transition: background-color .15s;
 }
-.tw-button:hover:not(:disabled) { background: var(--tw-accent); }
-.tw-button:disabled { opacity: 0.5; cursor: not-allowed; }
-.tw-button-wide { width: 100%; justify-content: flex-start; }
-.tw-button-quiet { border-color: transparent; color: var(--tw-muted); }
+.tw-button:hover:not(:disabled) { background: var(--tw-primary-hover); }
+.tw-button:active:not(:disabled) { transform: scale(.98); }
+.tw-button:disabled { opacity: .5; cursor: not-allowed; }
+.tw-button-wide { width: 100%; }
+.tw-button-quiet {
+  background: transparent; color: var(--tw-fg);
+  border: 1px solid var(--tw-border); font-weight: 400;
+}
+.tw-button-quiet:hover:not(:disabled) { background: var(--tw-accent-soft); }
 
-.tw-root :focus-visible { outline: 2px solid var(--tw-primary); outline-offset: 1px; }
-
-.tw-tree { display: flex; flex-direction: column; }
-.tw-group { display: flex; flex-direction: column; }
+/* ── tree ────────────────────────────────────────────────────────────── */
+.tw-tree { display: flex; flex-direction: column; gap: 2px; }
+.tw-group {
+  display: flex; flex-direction: column; gap: 2px;
+  margin: 2px 0 2px 12px; padding-left: 12px;
+  border-left: 1px solid var(--tw-border);
+}
 
 .tw-node {
-  display: flex; align-items: center; gap: 6px;
-  min-height: var(--tw-row); padding: 2px 4px; border-radius: 6px;
-  cursor: default;
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 8px; border-radius: 6px;
+  background: transparent; text-align: left;
+  cursor: pointer; transition: background-color .15s;
 }
-.tw-node:hover { background: var(--tw-accent); }
-.tw-node[aria-selected="true"] { background: var(--tw-accent); }
-.tw-node-attachment { padding-left: 22px; cursor: pointer; }
+.tw-node:hover { background: var(--tw-accent-soft); }
+.tw-node[aria-selected="true"] { background: var(--tw-accent); color: var(--tw-accent-fg); }
+.tw-node-attachment { padding: 6px 8px; }
 .tw-node-attachment[data-clickable="false"] { cursor: default; }
-.tw-node-removed .tw-node-label { color: var(--tw-muted); }
+.tw-node-removed .tw-node-title { color: var(--tw-muted); text-decoration: line-through; }
 
-.tw-chevron {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 18px; height: 18px; flex: 0 0 18px;
-  border: none; background: transparent; color: var(--tw-muted);
-  font-size: 10px; cursor: pointer; padding: 0;
+.tw-node-icon {
+  display: flex; align-items: center; justify-content: center;
+  flex: 0 0 24px; width: 24px; height: 24px; border-radius: 4px;
+  color: var(--tw-muted);
 }
+.tw-node-attachment .tw-node-icon {
+  flex-basis: 20px; width: 20px; height: 20px;
+  background: hsl(var(--muted, 0 0% 96%) / 0.6);
+}
+.tw-svg { width: 14px; height: 14px; }
+.tw-node-attachment .tw-svg { width: 12px; height: 12px; }
 
-.tw-node-label {
-  flex: 1 1 auto; min-width: 0;
+.tw-node-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.tw-node-title {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 14px; font-weight: 400; color: var(--tw-fg);
+}
+.tw-node-attachment .tw-node-title { font-size: 13px; }
+.tw-node-subtitle {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--tw-muted);
 }
 .tw-node-input {
   flex: 1 1 auto; min-width: 0;
-  padding: 2px 4px; border: 1px solid var(--tw-primary); border-radius: 4px;
-  background: transparent; color: inherit; font: inherit;
+  padding: 5px 8px; border: 2px solid hsl(var(--primary, 221 83% 53%) / 0.4); border-radius: 6px;
+  background: hsl(var(--background, 0 0% 100%)); color: var(--tw-fg);
+  font: inherit; font-size: 14px;
 }
-.tw-age { flex: 0 0 auto; color: var(--tw-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-.tw-chip { flex: 0 0 auto; color: var(--tw-muted); font-size: 11px; }
+.tw-node-input:focus { border-color: var(--tw-primary); outline: none; }
+
+.tw-age {
+  flex: 0 0 auto; color: var(--tw-muted);
+  font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.tw-chevron {
+  display: flex; align-items: center; justify-content: center;
+  flex: 0 0 24px; width: 24px; height: 24px; border-radius: 4px;
+  border: none; background: transparent; color: var(--tw-muted); cursor: pointer; padding: 0;
+}
+.tw-chevron:hover { background: var(--tw-accent); }
 
 .tw-icon {
-  display: none; align-items: center; justify-content: center;
-  width: 24px; height: 24px; flex: 0 0 24px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  flex: 0 0 24px; width: 24px; height: 24px; padding: 0;
   border: none; border-radius: 4px; background: transparent;
-  color: var(--tw-muted); cursor: pointer; font-size: 13px; line-height: 1;
+  color: var(--tw-muted); cursor: pointer;
+  opacity: 0; transition: opacity .2s, background-color .15s;
 }
-.tw-node:hover .tw-icon, .tw-icon:focus-visible { display: inline-flex; }
-.tw-icon:hover { color: var(--tw-fg); background: var(--tw-accent); }
+.tw-node:hover .tw-icon, .tw-icon:focus-visible { opacity: 1; }
+.tw-icon:hover { background: var(--tw-accent); color: var(--tw-fg); }
+.tw-icon-danger:hover { color: var(--tw-danger); }
 
-.tw-hint, .tw-empty, .tw-error { color: var(--tw-muted); font-size: 12px; padding: 4px; }
-.tw-error { color: #ef4444; }
+/* ── states ──────────────────────────────────────────────────────────── */
+.tw-hint, .tw-empty, .tw-error { color: var(--tw-muted); font-size: 12px; padding: 8px; }
+.tw-empty { text-align: center; padding: 24px 8px; }
+.tw-error { color: var(--tw-danger); }
 
 .tw-confirm {
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  padding: 4px 8px; margin-left: 22px;
-  border: 1px solid var(--tw-border); border-radius: 6px; font-size: 12px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 2px 0 2px 24px; padding: 8px 10px;
+  border: 1px solid var(--tw-border); border-radius: 8px;
+  background: hsl(var(--muted, 0 0% 96%) / 0.4);
+  font-size: 12px;
 }
+.tw-confirm span { flex: 1 1 auto; min-width: 120px; }
+.tw-confirm .tw-button { height: 28px; }
 
-.tw-picker { position: relative; }
+/* ── project picker ──────────────────────────────────────────────────── */
+.tw-picker { display: flex; flex-direction: column; gap: 4px; padding: 2px 0; }
 .tw-listbox {
-  display: flex; flex-direction: column;
-  max-height: 220px; overflow: auto;
-  border: 1px solid var(--tw-border); border-radius: 6px;
-  background: var(--background, #111827);
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: 240px; overflow: auto; padding: 4px;
+  border: 1px solid var(--tw-border); border-radius: 8px;
+  background: hsl(var(--popover, var(--background, 0 0% 100%)));
+  box-shadow: 0 4px 12px hsl(0 0% 0% / .12);
 }
 .tw-option {
-  display: block; width: 100%; text-align: left;
-  min-height: var(--tw-row); padding: 4px 8px;
-  border: none; background: transparent; color: inherit; font: inherit; cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; min-height: 32px; padding: 6px 8px;
+  border: none; border-radius: 6px; background: transparent;
+  color: var(--tw-fg); font: inherit; font-size: 13px; text-align: left; cursor: pointer;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.tw-option:hover, .tw-option[aria-selected="true"] { background: var(--tw-accent); }
+.tw-option:hover, .tw-option[aria-selected="true"] { background: var(--tw-accent-soft); }
 .tw-option[aria-disabled="true"] { color: var(--tw-muted); cursor: not-allowed; }
 `;
 
 /** Idempotent: the module may be mounted into two surfaces at once (§6.5). */
 export function injectStyles(): void {
-  if (document.getElementById(STYLE_ID)) return;
+  const existing = document.getElementById(STYLE_ID);
+  if (existing) {
+    // Keep the newest rules when a rebuilt module is mounted into a live page.
+    existing.textContent = CSS;
+    return;
+  }
+
   const style = document.createElement('style');
   style.id = STYLE_ID;
   style.textContent = CSS;

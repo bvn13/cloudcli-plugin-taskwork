@@ -288,6 +288,21 @@ class TaskStore {
     attachProject(taskId, projectId, projectName) {
         return this.mutate('POST', `/tasks/${encodeURIComponent(taskId)}/attachments`, { projectId, projectName });
     }
+    /**
+     * Pins the session an attachment ended up with (E8). Deliberately does not
+     * re-read the tree: this fires from the session poll, and a full reload there
+     * would fight with whatever the user is doing.
+     */
+    async bindSession(taskId, projectId, sessionId) {
+        try {
+            const response = await this.api.rpc('PATCH', `/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(projectId)}`, { sessionId });
+            const task = response.task;
+            this.patch({ tasks: this.state.tasks.map((candidate) => (candidate.id === task.id ? task : candidate)) });
+        }
+        catch {
+            // Non-fatal: the attachment stays unbound and the heuristic runs again.
+        }
+    }
     detachProject(taskId, projectId) {
         return this.mutate('DELETE', `/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(projectId)}`);
     }
@@ -338,19 +353,29 @@ class TaskStore {
 // ---- styles.js ----
 const STYLE_ID = 'taskwork-styles';
 /**
- * Colours come from the host's own CSS variables so the plugin follows the
- * active theme; every one has a fallback for hosts that do not define it.
- * All selectors are `.tw-` prefixed and scoped under `.tw-root`.
+ * The look is deliberately borrowed from the host's own project list, so the
+ * task tree reads as part of the sidebar rather than as an embedded widget:
+ * the same row padding, radius, hover accent, left rail under a parent node and
+ * the same primary-coloured action button.
+ *
+ * The host publishes its palette as **raw HSL triples** (`--accent: 44 15% 91%`),
+ * not as finished colours, so every reference has to go through
+ * `hsl(var(--x) / a)` with a triple as the fallback. Using `var(--accent)`
+ * directly yields an invalid colour and the element silently renders unstyled.
  */
 const CSS = `
 .tw-root {
-  --tw-fg: var(--foreground, #e5e7eb);
-  --tw-bg: var(--background, transparent);
-  --tw-muted: var(--muted-foreground, #9ca3af);
-  --tw-border: var(--border, rgba(127, 127, 127, 0.3));
-  --tw-accent: var(--accent, rgba(127, 127, 127, 0.16));
-  --tw-primary: var(--primary, #3b82f6);
-  --tw-row: 32px;
+  --tw-fg: hsl(var(--foreground, 0 0% 10%));
+  --tw-muted: hsl(var(--muted-foreground, 0 0% 45%));
+  --tw-border: hsl(var(--border, 0 0% 85%));
+  --tw-accent: hsl(var(--accent, 0 0% 92%));
+  --tw-accent-soft: hsl(var(--accent, 0 0% 92%) / 0.5);
+  --tw-accent-fg: hsl(var(--accent-foreground, 0 0% 10%));
+  --tw-primary: hsl(var(--primary, 221 83% 53%));
+  --tw-primary-hover: hsl(var(--primary, 221 83% 53%) / 0.9);
+  --tw-primary-fg: hsl(var(--primary-foreground, 0 0% 100%));
+  --tw-danger: hsl(var(--destructive, 0 84% 60%));
+  --tw-ring: hsl(var(--ring, 221 83% 53%));
 
   display: flex;
   flex-direction: column;
@@ -358,111 +383,158 @@ const CSS = `
   box-sizing: border-box;
   height: 100%;
   overflow: auto;
-  padding: 8px;
+  padding: 8px 6px;
   color: var(--tw-fg);
-  background: var(--tw-bg);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.35;
 }
 .tw-root *, .tw-root *::before, .tw-root *::after { box-sizing: border-box; }
+.tw-root :focus-visible { outline: 2px solid var(--tw-ring); outline-offset: 1px; }
 
 .tw-surface-tab { max-width: 720px; margin: 0 auto; padding: 16px; }
-.tw-surface-sidebar { padding: 6px 8px; }
 
+/* ── banners ─────────────────────────────────────────────────────────── */
 .tw-banner {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 6px 8px; border: 1px solid var(--tw-border); border-radius: 6px;
+  margin: 0 2px 4px; padding: 6px 10px;
+  border: 1px solid var(--tw-border); border-radius: 8px;
   color: var(--tw-muted); font-size: 12px;
 }
-.tw-banner-error { color: var(--tw-fg); border-color: #ef4444; }
-.tw-banner button { font-size: 12px; }
+.tw-banner-error { color: var(--tw-fg); border-color: var(--tw-danger); }
 
-.tw-toolbar { display: flex; align-items: center; gap: 6px; }
-
+/* ── buttons ─────────────────────────────────────────────────────────── */
 .tw-button {
-  display: inline-flex; align-items: center; gap: 6px;
-  min-height: var(--tw-row); padding: 4px 8px;
-  border: 1px solid var(--tw-border); border-radius: 6px;
-  background: transparent; color: inherit; font: inherit; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 32px; padding: 0 10px;
+  border: none; border-radius: 6px;
+  background: var(--tw-primary); color: var(--tw-primary-fg);
+  font: inherit; font-size: 12px; font-weight: 500;
+  cursor: pointer; transition: background-color .15s;
 }
-.tw-button:hover:not(:disabled) { background: var(--tw-accent); }
-.tw-button:disabled { opacity: 0.5; cursor: not-allowed; }
-.tw-button-wide { width: 100%; justify-content: flex-start; }
-.tw-button-quiet { border-color: transparent; color: var(--tw-muted); }
+.tw-button:hover:not(:disabled) { background: var(--tw-primary-hover); }
+.tw-button:active:not(:disabled) { transform: scale(.98); }
+.tw-button:disabled { opacity: .5; cursor: not-allowed; }
+.tw-button-wide { width: 100%; }
+.tw-button-quiet {
+  background: transparent; color: var(--tw-fg);
+  border: 1px solid var(--tw-border); font-weight: 400;
+}
+.tw-button-quiet:hover:not(:disabled) { background: var(--tw-accent-soft); }
 
-.tw-root :focus-visible { outline: 2px solid var(--tw-primary); outline-offset: 1px; }
-
-.tw-tree { display: flex; flex-direction: column; }
-.tw-group { display: flex; flex-direction: column; }
+/* ── tree ────────────────────────────────────────────────────────────── */
+.tw-tree { display: flex; flex-direction: column; gap: 2px; }
+.tw-group {
+  display: flex; flex-direction: column; gap: 2px;
+  margin: 2px 0 2px 12px; padding-left: 12px;
+  border-left: 1px solid var(--tw-border);
+}
 
 .tw-node {
-  display: flex; align-items: center; gap: 6px;
-  min-height: var(--tw-row); padding: 2px 4px; border-radius: 6px;
-  cursor: default;
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 8px; border-radius: 6px;
+  background: transparent; text-align: left;
+  cursor: pointer; transition: background-color .15s;
 }
-.tw-node:hover { background: var(--tw-accent); }
-.tw-node[aria-selected="true"] { background: var(--tw-accent); }
-.tw-node-attachment { padding-left: 22px; cursor: pointer; }
+.tw-node:hover { background: var(--tw-accent-soft); }
+.tw-node[aria-selected="true"] { background: var(--tw-accent); color: var(--tw-accent-fg); }
+.tw-node-attachment { padding: 6px 8px; }
 .tw-node-attachment[data-clickable="false"] { cursor: default; }
-.tw-node-removed .tw-node-label { color: var(--tw-muted); }
+.tw-node-removed .tw-node-title { color: var(--tw-muted); text-decoration: line-through; }
 
-.tw-chevron {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 18px; height: 18px; flex: 0 0 18px;
-  border: none; background: transparent; color: var(--tw-muted);
-  font-size: 10px; cursor: pointer; padding: 0;
+.tw-node-icon {
+  display: flex; align-items: center; justify-content: center;
+  flex: 0 0 24px; width: 24px; height: 24px; border-radius: 4px;
+  color: var(--tw-muted);
 }
+.tw-node-attachment .tw-node-icon {
+  flex-basis: 20px; width: 20px; height: 20px;
+  background: hsl(var(--muted, 0 0% 96%) / 0.6);
+}
+.tw-svg { width: 14px; height: 14px; }
+.tw-node-attachment .tw-svg { width: 12px; height: 12px; }
 
-.tw-node-label {
-  flex: 1 1 auto; min-width: 0;
+.tw-node-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.tw-node-title {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 14px; font-weight: 400; color: var(--tw-fg);
+}
+.tw-node-attachment .tw-node-title { font-size: 13px; }
+.tw-node-subtitle {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--tw-muted);
 }
 .tw-node-input {
   flex: 1 1 auto; min-width: 0;
-  padding: 2px 4px; border: 1px solid var(--tw-primary); border-radius: 4px;
-  background: transparent; color: inherit; font: inherit;
+  padding: 5px 8px; border: 2px solid hsl(var(--primary, 221 83% 53%) / 0.4); border-radius: 6px;
+  background: hsl(var(--background, 0 0% 100%)); color: var(--tw-fg);
+  font: inherit; font-size: 14px;
 }
-.tw-age { flex: 0 0 auto; color: var(--tw-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-.tw-chip { flex: 0 0 auto; color: var(--tw-muted); font-size: 11px; }
+.tw-node-input:focus { border-color: var(--tw-primary); outline: none; }
+
+.tw-age {
+  flex: 0 0 auto; color: var(--tw-muted);
+  font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.tw-chevron {
+  display: flex; align-items: center; justify-content: center;
+  flex: 0 0 24px; width: 24px; height: 24px; border-radius: 4px;
+  border: none; background: transparent; color: var(--tw-muted); cursor: pointer; padding: 0;
+}
+.tw-chevron:hover { background: var(--tw-accent); }
 
 .tw-icon {
-  display: none; align-items: center; justify-content: center;
-  width: 24px; height: 24px; flex: 0 0 24px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  flex: 0 0 24px; width: 24px; height: 24px; padding: 0;
   border: none; border-radius: 4px; background: transparent;
-  color: var(--tw-muted); cursor: pointer; font-size: 13px; line-height: 1;
+  color: var(--tw-muted); cursor: pointer;
+  opacity: 0; transition: opacity .2s, background-color .15s;
 }
-.tw-node:hover .tw-icon, .tw-icon:focus-visible { display: inline-flex; }
-.tw-icon:hover { color: var(--tw-fg); background: var(--tw-accent); }
+.tw-node:hover .tw-icon, .tw-icon:focus-visible { opacity: 1; }
+.tw-icon:hover { background: var(--tw-accent); color: var(--tw-fg); }
+.tw-icon-danger:hover { color: var(--tw-danger); }
 
-.tw-hint, .tw-empty, .tw-error { color: var(--tw-muted); font-size: 12px; padding: 4px; }
-.tw-error { color: #ef4444; }
+/* ── states ──────────────────────────────────────────────────────────── */
+.tw-hint, .tw-empty, .tw-error { color: var(--tw-muted); font-size: 12px; padding: 8px; }
+.tw-empty { text-align: center; padding: 24px 8px; }
+.tw-error { color: var(--tw-danger); }
 
 .tw-confirm {
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  padding: 4px 8px; margin-left: 22px;
-  border: 1px solid var(--tw-border); border-radius: 6px; font-size: 12px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 2px 0 2px 24px; padding: 8px 10px;
+  border: 1px solid var(--tw-border); border-radius: 8px;
+  background: hsl(var(--muted, 0 0% 96%) / 0.4);
+  font-size: 12px;
 }
+.tw-confirm span { flex: 1 1 auto; min-width: 120px; }
+.tw-confirm .tw-button { height: 28px; }
 
-.tw-picker { position: relative; }
+/* ── project picker ──────────────────────────────────────────────────── */
+.tw-picker { display: flex; flex-direction: column; gap: 4px; padding: 2px 0; }
 .tw-listbox {
-  display: flex; flex-direction: column;
-  max-height: 220px; overflow: auto;
-  border: 1px solid var(--tw-border); border-radius: 6px;
-  background: var(--background, #111827);
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: 240px; overflow: auto; padding: 4px;
+  border: 1px solid var(--tw-border); border-radius: 8px;
+  background: hsl(var(--popover, var(--background, 0 0% 100%)));
+  box-shadow: 0 4px 12px hsl(0 0% 0% / .12);
 }
 .tw-option {
-  display: block; width: 100%; text-align: left;
-  min-height: var(--tw-row); padding: 4px 8px;
-  border: none; background: transparent; color: inherit; font: inherit; cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; min-height: 32px; padding: 6px 8px;
+  border: none; border-radius: 6px; background: transparent;
+  color: var(--tw-fg); font: inherit; font-size: 13px; text-align: left; cursor: pointer;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.tw-option:hover, .tw-option[aria-selected="true"] { background: var(--tw-accent); }
+.tw-option:hover, .tw-option[aria-selected="true"] { background: var(--tw-accent-soft); }
 .tw-option[aria-disabled="true"] { color: var(--tw-muted); cursor: not-allowed; }
 `;
 /** Idempotent: the module may be mounted into two surfaces at once (§6.5). */
 function injectStyles() {
-    if (document.getElementById(STYLE_ID))
+    const existing = document.getElementById(STYLE_ID);
+    if (existing) {
+        // Keep the newest rules when a rebuilt module is mounted into a live page.
+        existing.textContent = CSS;
         return;
+    }
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = CSS;
@@ -511,12 +583,42 @@ function el(tag, options = {}) {
 }
 /** Icon-sized button with an accessible name (minimum hit area comes from CSS). */
 function iconButton(className, label, glyph) {
-    return el('button', {
+    const button = el('button', {
         className,
-        text: glyph,
         attrs: { type: 'button', 'aria-label': label, title: label },
     });
+    button.appendChild(typeof glyph === 'string' ? document.createTextNode(glyph) : glyph);
+    return button;
 }
+const SVG_NS = 'http://www.w3.org/2000/svg';
+/**
+ * Inline icon in the host's icon style (lucide: 24×24 grid, `currentColor`,
+ * 2px round strokes). Built through the DOM rather than `innerHTML`.
+ */
+function icon(paths, className = 'tw-svg') {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('class', className);
+    for (const definition of paths) {
+        const path = document.createElementNS(SVG_NS, 'path');
+        path.setAttribute('d', definition);
+        svg.appendChild(path);
+    }
+    return svg;
+}
+const ICON_CHEVRON_RIGHT = ['m9 18 6-6-6-6'];
+const ICON_CHEVRON_DOWN = ['m6 9 6 6 6-6'];
+const ICON_PLUS = ['M5 12h14', 'M12 5v14'];
+const ICON_TRASH = ['M3 6h18', 'M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6', 'M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2'];
+const ICON_MESSAGE = ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'];
+const ICON_FOLDER = ['M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z'];
+const ICON_LIST = ['m3 5 2 2 4-4', 'M13 6h8', 'M13 12h8', 'M13 18h8', 'm3 13 2 2 4-4'];
 function focusSoon(input) {
     // rAF: the element has to be in the document and laid out before focus sticks.
     requestAnimationFrame(() => {
@@ -528,16 +630,15 @@ function focusSoon(input) {
 // ---- AddTaskButton.js ----
 /**
  * Sits where the host's search box would be (§9.2) and starts a draft task.
- * Pressing it again while a draft is open replaces that draft (§9.3, step 6).
+ * Styled like the host's own primary action button so the section opens with a
+ * familiar affordance. Pressing it again while a draft is open replaces that
+ * draft (§9.3, step 6).
  */
 function createAddTaskButton(onStartDraft) {
     const button = el('button', {
         className: 'tw-button tw-button-wide',
         attrs: { type: 'button', 'aria-label': 'Add new task' },
-        children: [
-            el('span', { className: 'tw-chip', text: '+' }),
-            el('span', { text: 'Add new task' }),
-        ],
+        children: [icon(ICON_PLUS), el('span', { text: 'Add new task' })],
     });
     button.addEventListener('click', () => onStartDraft());
     return el('div', { className: 'tw-toolbar', children: [button] });
@@ -545,9 +646,10 @@ function createAddTaskButton(onStartDraft) {
 
 // ---- AttachmentNode.js ----
 /**
- * A child node of a task: one attached project, labelled with its latest
- * session. What the label says and whether the row is clickable depends on the
- * host's capabilities, never on a guess (§9.5.1).
+ * A child node of a task: one attached project, with its session underneath —
+ * laid out like the host's own session rows. What the subtitle says and whether
+ * the row is clickable depends on the host's capabilities, never on a guess
+ * (§9.5.1).
  */
 function createAttachmentNode(context, task, attachment) {
     const view = context.describeAttachment(task, attachment);
@@ -565,11 +667,17 @@ function createAttachmentNode(context, task, attachment) {
             tabindex: context.view.activeNodeId === nodeId ? '0' : '-1',
         },
         children: [
-            el('span', { className: 'tw-node-label', text: view.label, title: view.label }),
-            view.clickable ? el('span', { className: 'tw-chip', text: '›', attrs: { 'aria-hidden': 'true' } }) : null,
+            el('span', { className: 'tw-node-icon', children: [icon(ICON_MESSAGE)] }),
+            el('div', {
+                className: 'tw-node-text',
+                children: [
+                    el('div', { className: 'tw-node-title', text: view.projectName, title: view.projectName }),
+                    el('div', { className: 'tw-node-subtitle', text: view.sessionLabel, title: view.sessionLabel }),
+                ],
+            }),
         ],
     });
-    const detach = iconButton('tw-icon', `Detach ${attachment.projectName}`, '×');
+    const detach = iconButton('tw-icon tw-icon-danger', `Detach ${attachment.projectName}`, icon(ICON_TRASH));
     detach.addEventListener('click', (event) => {
         event.stopPropagation();
         context.callbacks.requestDelete({ kind: 'attachment', taskId: task.id, projectId: attachment.projectId });
@@ -621,6 +729,13 @@ function createInlineInput(options) {
         focusSoon(input);
     return input;
 }
+/** Subtitle under a task title, mirroring the project row's session count. */
+function attachmentSummary(task) {
+    const count = task.attachments.length;
+    if (count === 0)
+        return 'No projects';
+    return count === 1 ? '1 project' : `${count} projects`;
+}
 /** The unsaved task row: it lives directly under the `+` button until Enter or blur. */
 function createDraftNode(context) {
     const input = createInlineInput({
@@ -634,7 +749,10 @@ function createDraftNode(context) {
     });
     const row = el('div', {
         className: 'tw-node tw-node-task tw-node-draft',
-        children: [el('span', { className: 'tw-chevron' }), input],
+        children: [
+            el('span', { className: 'tw-node-icon', children: [icon(ICON_LIST)] }),
+            input,
+        ],
     });
     return el('div', {
         children: [
@@ -657,8 +775,7 @@ function createTaskNode(context, task, now) {
             tabindex: context.view.activeNodeId === `task:${task.id}` ? '0' : '-1',
         },
     });
-    const chevron = el('span', { className: 'tw-chevron', text: expanded ? '▾' : '▸', attrs: { 'aria-hidden': 'true' } });
-    row.appendChild(chevron);
+    row.appendChild(el('span', { className: 'tw-node-icon', children: [icon(ICON_LIST)] }));
     if (editing) {
         row.appendChild(createInlineInput({
             value: task.title,
@@ -671,21 +788,30 @@ function createTaskNode(context, task, now) {
         }));
     }
     else {
-        const label = el('span', { className: 'tw-node-label', text: task.title, title: task.title });
-        label.addEventListener('dblclick', (event) => {
+        const title = el('div', { className: 'tw-node-title', text: task.title, title: task.title });
+        const text = el('div', {
+            className: 'tw-node-text',
+            children: [title, el('div', { className: 'tw-node-subtitle', text: attachmentSummary(task) })],
+        });
+        text.addEventListener('dblclick', (event) => {
             event.stopPropagation();
             context.callbacks.startRename(task.id);
         });
-        row.appendChild(label);
+        row.appendChild(text);
         const age = el('span', { className: 'tw-age', text: formatCompactAge(task.createdAt, now) });
         age.setAttribute(AGE_ATTR, task.createdAt);
         row.appendChild(age);
-        const remove = iconButton('tw-icon', `Delete task ${task.title}`, '×');
+        const remove = iconButton('tw-icon tw-icon-danger', `Delete task ${task.title}`, icon(ICON_TRASH));
         remove.addEventListener('click', (event) => {
             event.stopPropagation();
             context.callbacks.requestDelete({ kind: 'task', taskId: task.id });
         });
         row.appendChild(remove);
+        row.appendChild(el('span', {
+            className: 'tw-chevron',
+            attrs: { 'aria-hidden': 'true' },
+            children: [icon(expanded ? ICON_CHEVRON_DOWN : ICON_CHEVRON_RIGHT)],
+        }));
         row.addEventListener('click', () => context.callbacks.toggle(task.id));
     }
     return row;
@@ -714,9 +840,12 @@ function createAttachCurrentButton(context, task) {
     const locked = projectId !== null && context.state.lockedProjectIds.includes(projectId);
     const displayName = context.currentProjectName;
     const button = el('button', {
-        className: 'tw-button tw-button-wide tw-button-quiet',
-        text: project ? `+ Attach “${displayName}”` : '+ Attach current project',
+        className: 'tw-button tw-button-wide',
         attrs: { type: 'button', 'data-role': 'attach-current' },
+        children: [
+            icon(ICON_PLUS),
+            el('span', { text: project ? `Attach “${displayName}”` : 'Attach current project' }),
+        ],
     });
     const hint = !project
         ? 'Select a project first'
@@ -761,9 +890,9 @@ function createListbox(context, task) {
     for (const project of options) {
         const option = el('button', {
             className: 'tw-option',
-            text: project.displayName,
             title: project.fullPath || project.displayName,
             attrs: { type: 'button', role: 'option', 'aria-selected': 'false' },
+            children: [icon(ICON_FOLDER), el('span', { text: project.displayName })],
         });
         option.addEventListener('click', (event) => {
             event.stopPropagation();
@@ -800,9 +929,9 @@ function createProjectPicker(context, task) {
         return createAttachCurrentButton(context, task);
     if (context.view.pickerTaskId !== task.id) {
         const button = el('button', {
-            className: 'tw-button tw-button-wide tw-button-quiet',
-            text: '+ Add project',
+            className: 'tw-button tw-button-wide',
             attrs: { type: 'button', 'data-role': 'add-project' },
+            children: [icon(ICON_PLUS), el('span', { text: 'Add project' })],
         });
         button.addEventListener('click', (event) => {
             event.stopPropagation();
@@ -1024,29 +1153,27 @@ function currentProjectName(instance) {
     const known = instance.projects.find((candidate) => candidate.projectId === project.name);
     return known?.displayName ?? basename(project.path) ?? project.name;
 }
+function view(projectName, sessionLabel, rest) {
+    return { projectName, sessionLabel, label: `${projectName} — ${sessionLabel}`, ...rest };
+}
 function describeAttachment(instance, _task, attachment) {
     const known = instance.projects.find((project) => project.projectId === attachment.projectId);
     // A renamed project shows its current name; the snapshot is only a fallback (§11).
     const name = known?.displayName ?? attachment.projectName;
     if (!instance.caps.canFetchHost) {
-        return { label: `${name} — (open in Chat)`, clickable: false, pending: false, removed: false };
+        return view(name, 'Open in Chat', { clickable: false, pending: false, removed: false });
     }
     if (instance.projectsLoaded && !known) {
-        return { label: `${name} — (project removed)`, clickable: false, pending: false, removed: true };
+        return view(name, 'Project removed', { clickable: false, pending: false, removed: true });
     }
     if (!instance.sessions.has(attachment.projectId)) {
-        return { label: `${name} — …`, clickable: false, pending: false, removed: false };
+        return view(name, '…', { clickable: false, pending: false, removed: false });
     }
     const session = instance.sessions.get(attachment.projectId) ?? null;
     if (!session) {
-        return { label: `${name} — New chat`, clickable: instance.caps.canNavigate, pending: true, removed: false };
+        return view(name, 'New chat', { clickable: instance.caps.canNavigate, pending: true, removed: false });
     }
-    return {
-        label: `${name} — ${session.title}`,
-        clickable: instance.caps.canNavigate,
-        pending: false,
-        removed: false,
-    };
+    return view(name, session.title, { clickable: instance.caps.canNavigate, pending: false, removed: false });
 }
 /** One description of the surface, shared by rendering and by the keyboard handler. */
 function treeContext(instance) {
@@ -1216,19 +1343,44 @@ async function loadProjects(instance) {
         reportHostError(instance, error);
     }
 }
-/** Heuristic "latest session of the project" — the host emits no session events (D-2). */
+/**
+ * Resolves each attachment's session without any help from the host (D-2).
+ *
+ * A bound `sessionId` wins. Otherwise the project's newest session counts only
+ * if it was created **after** the attachment: a project that already had chats
+ * would otherwise adopt an old one the moment it is attached, and clicking the
+ * node would reopen that old conversation instead of the new chat the user just
+ * started. Once a genuinely new session appears it is written back through E8,
+ * so the binding survives later sessions.
+ */
 async function loadSessions(instance) {
     if (!instance.caps.canFetchHost || instance.authExpired)
         return;
-    const projectIds = new Set(instance.store.getState().tasks.flatMap((task) => task.attachments.map((a) => a.projectId)));
+    const attachments = instance.store.getState().tasks.flatMap((task) => task.attachments.map((attachment) => ({ taskId: task.id, attachment })));
+    const projectIds = new Set(attachments.map(({ attachment }) => attachment.projectId));
     let changed = false;
-    for (const projectId of projectIds) {
+    for (const { taskId, attachment } of attachments) {
+        const projectId = attachment.projectId;
         try {
             const sessions = await instance.bridge.listSessions(projectId, 1);
             if (instance.disposed)
                 return;
-            instance.sessions.set(projectId, sessions[0] ?? null);
+            const newest = sessions[0] ?? null;
+            const bound = attachment.sessionId
+                ? sessions.find((session) => session.id === attachment.sessionId) ?? {
+                    id: attachment.sessionId,
+                    title: newest?.id === attachment.sessionId ? newest.title : 'Session',
+                    createdAt: null,
+                }
+                : null;
+            const startedAfterAttach = Boolean(newest?.createdAt && newest.createdAt > attachment.attachedAt);
+            const resolved = bound ?? (startedAfterAttach ? newest : null);
+            instance.sessions.set(projectId, resolved);
             changed = true;
+            // First sighting of the session this attachment created: pin it (E8).
+            if (!attachment.sessionId && resolved) {
+                await instance.store.bindSession(taskId, projectId, resolved.id);
+            }
         }
         catch (error) {
             reportHostError(instance, error);
