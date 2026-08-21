@@ -11,7 +11,7 @@ of the three upstream patches shipped in [`patches/`](patches/).
 Settings → Plugins → *Install from URL*:
 
 ```
-https://gitea.bvn13.me/ai-first/cloudcli-plugin-taskwork.git
+https://github.com/bvn13/cloudcli-plugin-taskwork.git
 ```
 
 The host clones the repository, runs `npm install --ignore-scripts` and
