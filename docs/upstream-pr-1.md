@@ -3,7 +3,11 @@
 Target: `siteboon/claudecodeui`, base branch `main`, base tag of the work `v1.37.2`.
 Head: `bvn13:feat/resizable-sidebar`.
 Patch: [`patches/0001-feat-resizable-sidebar.patch`](../patches/0001-feat-resizable-sidebar.patch).
-Discussion issue: https://github.com/siteboon/claudecodeui/issues/1188 (opened 2026-08-21).
+
+> **Опубликован:** PR https://github.com/siteboon/claudecodeui/pull/1189,
+> issue https://github.com/siteboon/claudecodeui/issues/1188 (оба 2026-08-21, открыты).
+> PR числится черновиком — CodeRabbit пропустил ревью с пометкой «Draft detected».
+> Пока он в этом состоянии, ни бот, ни мейнтейнеры его не смотрят.
 
 ---
 
