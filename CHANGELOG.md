@@ -9,6 +9,11 @@ refuses to run otherwise.
 
 ## [Unreleased]
 
+### Changed
+- `patches/0002-feat-plugin-host-api.patch` regenerated: it now carries the
+  review fix from upstream PR #1191 — the host api ref is assigned in an effect
+  instead of during render, which React's purity rule forbids.
+
 ## [1.1.0] — 2026-08-21
 
 Both fixes come from the first run on a real host.

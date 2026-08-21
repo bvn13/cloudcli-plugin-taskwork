@@ -1,8 +1,8 @@
 From ea00d586d14563839128e8f98181d96cb4c5fca7 Mon Sep 17 00:00:00 2001
 From: bvn13 <from.github@bvn13.me>
 Date: Fri, 21 Aug 2026 21:37:31 +0300
-Subject: [PATCH] feat(plugins): give plugins an authenticated way to reach the
- host API
+Subject: [PATCH 1/2] feat(plugins): give plugins an authenticated way to reach
+ the host API
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -407,6 +407,38 @@ index 7e7f8db..8423933 100644
  
          await mod.mount?.(container, api);
          if (!active) {
+-- 
+2.55.0
+
+
+From ddec83fe95375ad75808e71c3d1034e43fdb73d5 Mon Sep 17 00:00:00 2001
+From: bvn13 <from.github@bvn13.me>
+Date: Sat, 22 Aug 2026 01:24:20 +0300
+Subject: [PATCH 2/2] fix(plugins): assign the host api ref after commit, not
+ during render
+
+Assigning a ref while rendering breaks React's purity rule: a render that is
+thrown away would still have published its api object through getHost(). The
+effect mirrors how the context ref in this file is already updated.
+---
+ src/components/plugins/view/PluginTabContent.tsx | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/components/plugins/view/PluginTabContent.tsx b/src/components/plugins/view/PluginTabContent.tsx
+index 8423933..de10f1f 100644
+--- a/src/components/plugins/view/PluginTabContent.tsx
++++ b/src/components/plugins/view/PluginTabContent.tsx
+@@ -61,7 +61,9 @@ export default function PluginTabContent({
+   // Read through a ref for the same reason as the context: the plugin module
+   // captures the api object once, on mount.
+   const hostApiRef = useRef(hostApi);
+-  hostApiRef.current = hostApi;
++  useEffect(() => {
++    hostApiRef.current = hostApi;
++  }, [hostApi]);
+ 
+   // Stable refs so effects don't need context values in their dep arrays
+   const contextRef = useRef<PluginContext>(buildContext(isDarkMode, selectedProject, selectedSession));
 -- 
 2.55.0
 

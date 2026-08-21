@@ -3,7 +3,12 @@
 Target: `siteboon/claudecodeui`, base tag `v1.37.2`.
 Branch: `github:bvn13/claudecodeui@feat/plugin-host-api`.
 Patch: [`patches/0002-feat-plugin-host-api.patch`](../patches/0002-feat-plugin-host-api.patch).
-Opened after the discussion in issue *"Plugins have no sanctioned way to read host data"*.
+
+> **Опубликован:** PR https://github.com/siteboon/claudecodeui/pull/1191,
+> issue https://github.com/siteboon/claudecodeui/issues/1190 (оба открыты 2026-08-21).
+> Ревью CodeRabbit нашло присваивание рефа во время рендера — исправлено
+> отдельным коммитом в той же ветке (`fix(plugins): assign the host api ref
+> after commit, not during render`).
 
 ## Problem
 
