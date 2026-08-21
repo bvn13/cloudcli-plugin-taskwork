@@ -3,7 +3,7 @@
 Target: `siteboon/claudecodeui`, base branch `main`, base tag of the work `v1.37.2`.
 Head: `bvn13:feat/resizable-sidebar`.
 Patch: [`patches/0001-feat-resizable-sidebar.patch`](../patches/0001-feat-resizable-sidebar.patch).
-Open after the discussion issue (`spec/upstream/issue-0-resizable-sidebar.md` in the workspace repository).
+Discussion issue: https://github.com/siteboon/claudecodeui/issues/1188 (opened 2026-08-21).
 
 ---
 
@@ -15,7 +15,7 @@ feat(sidebar): let the sidebar be resized
 
 **Body:**
 
-Closes #<issue>.
+Closes #1188.
 
 ### What this changes
 
