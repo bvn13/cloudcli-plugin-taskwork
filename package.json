@@ -1,0 +1,24 @@
+{
+  "name": "cloudcli-plugin-taskwork",
+  "version": "0.1.0",
+  "description": "Organizes LLM sessions into a task tree with exclusive project locking.",
+  "author": "bvn13",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "pretest": "npm run build",
+    "test": "node --test tests/*.test.mjs",
+    "clean": "node scripts/clean.mjs",
+    "check": "node scripts/check-version.mjs && node scripts/check-patches-generic.mjs && node scripts/check-no-auth-token.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/node": "^22.9.0"
+  }
+}

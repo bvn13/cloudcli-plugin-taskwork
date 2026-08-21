@@ -1,0 +1,6 @@
+node_modules/
+*.log
+build/.tsc-client/
+
+# build/ is deliberately NOT ignored: the host installs the plugin straight from
+# this repository and must find a working build even if `npm run build` fails.
