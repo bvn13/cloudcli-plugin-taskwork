@@ -9,6 +9,25 @@ refuses to run otherwise.
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-08-21
+
+The sidebar release: with the host patches applied, `Tasks` sits in the sidebar
+left of `Projects`, which is the layout this plugin was designed for.
+
+### Added
+- `sidebar` object in the manifest (`label: Tasks`, `order: 50`,
+  `replacesTab: true`). Hosts without the sidebar patch ignore it and keep
+  showing the `Task Work` tab, so the same build serves every configuration.
+- `patches/` — three independent patches against host `v1.37.2`, generated from
+  the fork's feature branches: resizable sidebar, plugin host API, plugin sidebar
+  surface. Each applies on its own, in any order.
+- `docs/upstream-pr-2.md`, `docs/upstream-pr-3.md` — the pull request write-ups.
+
+### Notes
+- Full mode (project drop-down, session titles, navigation) shipped in 0.1.0 and
+  activates by feature detection as soon as the host exposes `api.host`; no
+  separate plugin release was needed for it.
+
 ## [0.1.0] — 2026-08-21
 
 First release: fully usable on a **stock** host, with no patch applied.

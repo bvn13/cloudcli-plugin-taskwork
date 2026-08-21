@@ -1,0 +1,427 @@
+From 749d92743f0da9849b94aa41cfc3a8c9b8e6c00f Mon Sep 17 00:00:00 2001
+From: bvn13 <from.github@bvn13.me>
+Date: Fri, 21 Aug 2026 21:27:12 +0300
+Subject: [PATCH] feat(sidebar): let the sidebar be resized
+
+The desktop sidebar has been fixed at 288px (md:w-72). On wide screens that
+wastes space; with long project names it truncates everything.
+
+A drag handle on its right edge sets the width, clamped to 220-640px and
+persisted in localStorage. Double-click or Home resets it, the arrow keys
+adjust it in 16px steps, and the mobile drawer is untouched.
+
+The width lives in its own hook rather than in useUiPreferences, which stores
+booleans only (parseBoolean, VALID_KEYS).
+---
+ src/components/app/AppContent.tsx             | 88 ++++++++++++++++++-
+ .../view/subcomponents/SidebarContent.tsx     |  2 +-
+ src/hooks/useSidebarWidth.test.ts             | 30 +++++++
+ src/hooks/useSidebarWidth.ts                  | 60 +++++++++++++
+ src/i18n/locales/de/common.json               |  3 +-
+ src/i18n/locales/en/common.json               |  3 +-
+ src/i18n/locales/es/common.json               |  3 +-
+ src/i18n/locales/fr/common.json               |  3 +-
+ src/i18n/locales/it/common.json               |  3 +-
+ src/i18n/locales/ja/common.json               |  3 +-
+ src/i18n/locales/ko/common.json               |  3 +-
+ src/i18n/locales/ru/common.json               |  3 +-
+ src/i18n/locales/tr/common.json               |  3 +-
+ src/i18n/locales/zh-CN/common.json            |  3 +-
+ src/i18n/locales/zh-TW/common.json            |  3 +-
+ 15 files changed, 199 insertions(+), 14 deletions(-)
+ create mode 100644 src/hooks/useSidebarWidth.test.ts
+ create mode 100644 src/hooks/useSidebarWidth.ts
+
+diff --git a/src/components/app/AppContent.tsx b/src/components/app/AppContent.tsx
+index 5d3b428..206b12d 100644
+--- a/src/components/app/AppContent.tsx
++++ b/src/components/app/AppContent.tsx
+@@ -1,4 +1,4 @@
+-import { useCallback, useEffect } from 'react';
++import { useCallback, useEffect, useRef } from 'react';
+ import { useNavigate, useParams } from 'react-router-dom';
+ import { useTranslation } from 'react-i18next';
+ 
+@@ -12,6 +12,12 @@ import { useDeviceSettings } from '../../hooks/useDeviceSettings';
+ import { useSessionProtection } from '../../hooks/useSessionProtection';
+ import { useProjectsState } from '../../hooks/useProjectsState';
+ import { useQueuedMessageAutoSend } from '../../hooks/useQueuedMessageAutoSend';
++import {
++  SIDEBAR_WIDTH_KEYBOARD_STEP,
++  SIDEBAR_WIDTH_MAX,
++  SIDEBAR_WIDTH_MIN,
++  useSidebarWidth,
++} from '../../hooks/useSidebarWidth';
+ import { api } from '../../utils/api';
+ 
+ type RunningSessionApiItem = {
+@@ -54,6 +60,11 @@ function AppContentInner() {
+   const { t } = useTranslation('common');
+   const { isMobile } = useDeviceSettings({ trackPWA: false });
+   const { ws, sendMessage, subscribe } = useWebSocket();
++  const { width: sidebarWidth, setWidth: setSidebarWidth, resetWidth: resetSidebarWidth } = useSidebarWidth();
++  // Drag origin; null while no resize is in progress.
++  const resizeOriginRef = useRef<{ pointerX: number; width: number } | null>(null);
++  const resizeFrameRef = useRef<number | null>(null);
++  const pendingWidthRef = useRef<number>(sidebarWidth);
+ 
+   const {
+     processingSessions,
+@@ -204,11 +215,84 @@ function AppContentInner() {
+     return () => vv.removeEventListener('resize', update);
+   }, []);
+ 
++  // Sidebar resizing (desktop only). Pointer capture keeps the drag alive when
++  // the cursor leaves the 4px handle, and the width is only written to storage
++  // once the pointer is released.
++  const handleResizeStart = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
++    event.preventDefault();
++    event.currentTarget.setPointerCapture(event.pointerId);
++    resizeOriginRef.current = { pointerX: event.clientX, width: sidebarWidth };
++    pendingWidthRef.current = sidebarWidth;
++    document.body.style.userSelect = 'none';
++  }, [sidebarWidth]);
++
++  const handleResizeMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
++    const origin = resizeOriginRef.current;
++    if (!origin) return;
++
++    pendingWidthRef.current = origin.width + (event.clientX - origin.pointerX);
++    if (resizeFrameRef.current !== null) return;
++    resizeFrameRef.current = window.requestAnimationFrame(() => {
++      resizeFrameRef.current = null;
++      setSidebarWidth(pendingWidthRef.current, false);
++    });
++  }, [setSidebarWidth]);
++
++  const handleResizeEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
++    if (!resizeOriginRef.current) return;
++    resizeOriginRef.current = null;
++
++    if (resizeFrameRef.current !== null) {
++      window.cancelAnimationFrame(resizeFrameRef.current);
++      resizeFrameRef.current = null;
++    }
++    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
++      event.currentTarget.releasePointerCapture(event.pointerId);
++    }
++    document.body.style.userSelect = '';
++    setSidebarWidth(pendingWidthRef.current);
++  }, [setSidebarWidth]);
++
++  const handleResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
++    if (event.key === 'ArrowLeft') {
++      event.preventDefault();
++      setSidebarWidth(sidebarWidth - SIDEBAR_WIDTH_KEYBOARD_STEP);
++    } else if (event.key === 'ArrowRight') {
++      event.preventDefault();
++      setSidebarWidth(sidebarWidth + SIDEBAR_WIDTH_KEYBOARD_STEP);
++    } else if (event.key === 'Home') {
++      event.preventDefault();
++      resetSidebarWidth();
++    }
++  }, [resetSidebarWidth, setSidebarWidth, sidebarWidth]);
++
++  // A drag interrupted by an unmount must not leave the page unselectable.
++  useEffect(() => () => {
++    if (resizeFrameRef.current !== null) window.cancelAnimationFrame(resizeFrameRef.current);
++    document.body.style.userSelect = '';
++  }, []);
++
+   return (
+     <div className="fixed inset-0 flex bg-background" style={{ bottom: 'var(--keyboard-height, 0px)' }}>
+       {!isMobile ? (
+-        <div className="h-full flex-shrink-0 border-r border-border/50">
++        <div className="relative h-full flex-shrink-0 border-r border-border/50" style={{ width: sidebarWidth }}>
+           <Sidebar {...sidebarSharedProps} />
++          <div
++            role="separator"
++            aria-orientation="vertical"
++            aria-label={t('versionUpdate.ariaLabels.resizeSidebar')}
++            aria-valuenow={sidebarWidth}
++            aria-valuemin={SIDEBAR_WIDTH_MIN}
++            aria-valuemax={SIDEBAR_WIDTH_MAX}
++            tabIndex={0}
++            className="absolute inset-y-0 -right-0.5 z-10 w-1 cursor-col-resize hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:outline-none"
++            onPointerDown={handleResizeStart}
++            onPointerMove={handleResizeMove}
++            onPointerUp={handleResizeEnd}
++            onPointerCancel={handleResizeEnd}
++            onDoubleClick={resetSidebarWidth}
++            onKeyDown={handleResizeKeyDown}
++          />
+         </div>
+       ) : (
+         <div
+diff --git a/src/components/sidebar/view/subcomponents/SidebarContent.tsx b/src/components/sidebar/view/subcomponents/SidebarContent.tsx
+index 8dd9f74..ee77a84 100644
+--- a/src/components/sidebar/view/subcomponents/SidebarContent.tsx
++++ b/src/components/sidebar/view/subcomponents/SidebarContent.tsx
+@@ -192,7 +192,7 @@ export default function SidebarContent({
+ 
+   return (
+     <div
+-      className="flex h-full flex-col bg-background/80 backdrop-blur-sm md:w-72 md:select-none"
++      className="flex h-full flex-col bg-background/80 backdrop-blur-sm md:w-full md:select-none"
+       style={{}}
+     >
+       <SidebarHeader
+diff --git a/src/hooks/useSidebarWidth.test.ts b/src/hooks/useSidebarWidth.test.ts
+new file mode 100644
+index 0000000..52c72ca
+--- /dev/null
++++ b/src/hooks/useSidebarWidth.test.ts
+@@ -0,0 +1,30 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++
++import {
++  SIDEBAR_WIDTH_DEFAULT,
++  SIDEBAR_WIDTH_MAX,
++  SIDEBAR_WIDTH_MIN,
++  clampSidebarWidth,
++  parseSidebarWidth,
++} from './useSidebarWidth';
++
++test('the sidebar width is clamped to the supported range', () => {
++  assert.equal(clampSidebarWidth(SIDEBAR_WIDTH_MIN - 100), SIDEBAR_WIDTH_MIN);
++  assert.equal(clampSidebarWidth(SIDEBAR_WIDTH_MAX + 100), SIDEBAR_WIDTH_MAX);
++  assert.equal(clampSidebarWidth(320), 320);
++  assert.equal(clampSidebarWidth(320.6), 321);
++});
++
++test('a stored width is restored, and a broken one falls back to the default', () => {
++  assert.equal(parseSidebarWidth('420'), 420);
++  assert.equal(parseSidebarWidth('9999'), SIDEBAR_WIDTH_MAX);
++  assert.equal(parseSidebarWidth('10'), SIDEBAR_WIDTH_MIN);
++  assert.equal(parseSidebarWidth(null), SIDEBAR_WIDTH_DEFAULT);
++  assert.equal(parseSidebarWidth('wide, please'), SIDEBAR_WIDTH_DEFAULT);
++  assert.equal(parseSidebarWidth(undefined), SIDEBAR_WIDTH_DEFAULT);
++});
++
++test('the default width matches the previous fixed sidebar', () => {
++  assert.equal(SIDEBAR_WIDTH_DEFAULT, 288); // md:w-72
++});
+diff --git a/src/hooks/useSidebarWidth.ts b/src/hooks/useSidebarWidth.ts
+new file mode 100644
+index 0000000..45f3479
+--- /dev/null
++++ b/src/hooks/useSidebarWidth.ts
+@@ -0,0 +1,60 @@
++import { useCallback, useEffect, useState } from 'react';
++
++export const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebar-width';
++export const SIDEBAR_WIDTH_DEFAULT = 288; // the previous fixed md:w-72
++export const SIDEBAR_WIDTH_MIN = 220;
++export const SIDEBAR_WIDTH_MAX = 640;
++export const SIDEBAR_WIDTH_KEYBOARD_STEP = 16;
++
++export const clampSidebarWidth = (value: number): number =>
++  Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(value)));
++
++/** A stored width that is missing, unparseable or out of range falls back to the default. */
++export const parseSidebarWidth = (raw: unknown): number => {
++  const value = typeof raw === 'string' ? Number.parseInt(raw, 10) : Number.NaN;
++  return Number.isFinite(value) ? clampSidebarWidth(value) : SIDEBAR_WIDTH_DEFAULT;
++};
++
++const readStoredWidth = (): number => {
++  try {
++    return parseSidebarWidth(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
++  } catch {
++    return SIDEBAR_WIDTH_DEFAULT;
++  }
++};
++
++/**
++ * Desktop sidebar width, persisted across reloads.
++ *
++ * Kept out of `useUiPreferences` on purpose: that store is boolean-only
++ * (`parseBoolean`, `VALID_KEYS`) and widening it to numbers would touch every
++ * preference for the sake of one.
++ */
++export function useSidebarWidth(): {
++  width: number;
++  /** `persist: false` while dragging — the width is written once, on release. */
++  setWidth: (value: number, persist?: boolean) => void;
++  resetWidth: () => void;
++} {
++  const [width, setWidthState] = useState<number>(SIDEBAR_WIDTH_DEFAULT);
++
++  // Read after mount so server-side rendering and hydration see the same value.
++  useEffect(() => {
++    setWidthState(readStoredWidth());
++  }, []);
++
++  const setWidth = useCallback((value: number, persist = true) => {
++    const next = clampSidebarWidth(value);
++    setWidthState(next);
++    if (!persist) return;
++    try {
++      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(next));
++    } catch {
++      // Storage unavailable (private mode, quota) — the width just stops persisting.
++    }
++  }, []);
++
++  const resetWidth = useCallback(() => setWidth(SIDEBAR_WIDTH_DEFAULT), [setWidth]);
++
++  return { width, setWidth, resetWidth };
++}
+diff --git a/src/i18n/locales/de/common.json b/src/i18n/locales/de/common.json
+index da18a66..5c6f299 100644
+--- a/src/i18n/locales/de/common.json
++++ b/src/i18n/locales/de/common.json
+@@ -234,7 +234,8 @@
+       "showSidebar": "Seitenleiste anzeigen",
+       "settings": "Einstellungen",
+       "updateAvailable": "Update verfügbar",
+-      "closeSidebar": "Seitenleiste schließen"
++      "closeSidebar": "Seitenleiste schließen",
++      "resizeSidebar": "Seitenleistenbreite ändern"
+     }
+   }
+ }
+diff --git a/src/i18n/locales/en/common.json b/src/i18n/locales/en/common.json
+index aeb5099..785bbb7 100644
+--- a/src/i18n/locales/en/common.json
++++ b/src/i18n/locales/en/common.json
+@@ -265,7 +265,8 @@
+       "showSidebar": "Show sidebar",
+       "settings": "Settings",
+       "updateAvailable": "Update available",
+-      "closeSidebar": "Close sidebar"
++      "closeSidebar": "Close sidebar",
++      "resizeSidebar": "Resize sidebar"
+     }
+   }
+ }
+diff --git a/src/i18n/locales/es/common.json b/src/i18n/locales/es/common.json
+index a97ef79..fed2871 100644
+--- a/src/i18n/locales/es/common.json
++++ b/src/i18n/locales/es/common.json
+@@ -264,7 +264,8 @@
+       "showSidebar": "Mostrar barra lateral",
+       "settings": "Ajustes",
+       "updateAvailable": "Actualización disponible",
+-      "closeSidebar": "Cerrar barra lateral"
++      "closeSidebar": "Cerrar barra lateral",
++      "resizeSidebar": "Redimensionar barra lateral"
+     }
+   }
+ }
+diff --git a/src/i18n/locales/fr/common.json b/src/i18n/locales/fr/common.json
+index 0418929..5a1ae9c 100644
+--- a/src/i18n/locales/fr/common.json
++++ b/src/i18n/locales/fr/common.json
+@@ -264,7 +264,8 @@
+       "showSidebar": "Afficher la barre latérale",
+       "settings": "Paramètres",
+       "updateAvailable": "Mise à jour disponible",
+-      "closeSidebar": "Masquer la barre latérale"
++      "closeSidebar": "Masquer la barre latérale",
++      "resizeSidebar": "Redimensionner la barre latérale"
+     }
+   }
+ }
+diff --git a/src/i18n/locales/it/common.json b/src/i18n/locales/it/common.json
+index d4706f7..b043b4c 100644
+--- a/src/i18n/locales/it/common.json
++++ b/src/i18n/locales/it/common.json
+@@ -264,7 +264,8 @@
+       "showSidebar": "Mostra barra laterale",
+       "settings": "Impostazioni",
+       "updateAvailable": "Aggiornamento disponibile",
+-      "closeSidebar": "Chiudi barra laterale"
++      "closeSidebar": "Chiudi barra laterale",
++      "resizeSidebar": "Ridimensiona barra laterale"
+     }
+   }
+ }
+diff --git a/src/i18n/locales/ja/common.json b/src/i18n/locales/ja/common.json
+index e1a2c5b..e329725 100644
+--- a/src/i18n/locales/ja/common.json
++++ b/src/i18n/locales/ja/common.json
+@@ -264,7 +264,8 @@
+       "showSidebar": "サイドバーを表示",
+       "settings": "設定",
+       "updateAvailable": "アップデートあり",
+-      "closeSidebar": "サイドバーを閉じる"
++      "closeSidebar": "サイドバーを閉じる",
++      "resizeSidebar": "サイドバーの幅を変更"
+     }
+   }
+ }
+diff --git a/src/i18n/locales/ko/common.json b/src/i18n/locales/ko/common.json
+index ed3f592..446f29f 100644
+--- a/src/i18n/locales/ko/common.json
++++ b/src/i18n/locales/ko/common.json
+@@ -264,7 +264,8 @@
+       "showSidebar": "사이드바 표시",
+       "settings": "설정",
+       "updateAvailable": "업데이트 가능",
+-      "closeSidebar": "사이드바 닫기"
++      "closeSidebar": "사이드바 닫기",
++      "resizeSidebar": "사이드바 크기 조절"
+     }
+   }
+ }
+diff --git a/src/i18n/locales/ru/common.json b/src/i18n/locales/ru/common.json
+index bb50142..b5d8343 100644
+--- a/src/i18n/locales/ru/common.json
++++ b/src/i18n/locales/ru/common.json
+@@ -234,7 +234,8 @@
+       "showSidebar": "Показать боковую панель",
+       "settings": "Настройки",
+       "updateAvailable": "Доступно обновление",
+-      "closeSidebar": "Закрыть боковую панель"
++      "closeSidebar": "Закрыть боковую панель",
++      "resizeSidebar": "Изменить ширину боковой панели"
+     }
+   }
+ }
+diff --git a/src/i18n/locales/tr/common.json b/src/i18n/locales/tr/common.json
+index 76412c3..6bbeda7 100644
+--- a/src/i18n/locales/tr/common.json
++++ b/src/i18n/locales/tr/common.json
+@@ -264,7 +264,8 @@
+       "showSidebar": "Kenar çubuğunu göster",
+       "settings": "Ayarlar",
+       "updateAvailable": "Güncelleme mevcut",
+-      "closeSidebar": "Kenar çubuğunu kapat"
++      "closeSidebar": "Kenar çubuğunu kapat",
++      "resizeSidebar": "Kenar çubuğunu yeniden boyutlandır"
+     }
+   }
+ }
+diff --git a/src/i18n/locales/zh-CN/common.json b/src/i18n/locales/zh-CN/common.json
+index 0c33ff7..54f6afc 100644
+--- a/src/i18n/locales/zh-CN/common.json
++++ b/src/i18n/locales/zh-CN/common.json
+@@ -264,7 +264,8 @@
+       "showSidebar": "显示侧边栏",
+       "settings": "设置",
+       "updateAvailable": "有可用更新",
+-      "closeSidebar": "关闭侧边栏"
++      "closeSidebar": "关闭侧边栏",
++      "resizeSidebar": "调整侧边栏宽度"
+     }
+   }
+ }
+diff --git a/src/i18n/locales/zh-TW/common.json b/src/i18n/locales/zh-TW/common.json
+index 21e425f..ba94715 100644
+--- a/src/i18n/locales/zh-TW/common.json
++++ b/src/i18n/locales/zh-TW/common.json
+@@ -264,7 +264,8 @@
+       "showSidebar": "顯示側邊欄",
+       "settings": "設定",
+       "updateAvailable": "有可用更新",
+-      "closeSidebar": "關閉側邊欄"
++      "closeSidebar": "關閉側邊欄",
++      "resizeSidebar": "調整側邊欄寬度"
+     }
+   }
+ }
+-- 
+2.55.0
+

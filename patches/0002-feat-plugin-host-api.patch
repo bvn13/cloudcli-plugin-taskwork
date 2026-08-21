@@ -1,0 +1,412 @@
+From ea00d586d14563839128e8f98181d96cb4c5fca7 Mon Sep 17 00:00:00 2001
+From: bvn13 <from.github@bvn13.me>
+Date: Fri, 21 Aug 2026 21:37:31 +0300
+Subject: [PATCH] feat(plugins): give plugins an authenticated way to reach the
+ host API
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The plugin docs contradict themselves: Security Model states a plugin cannot
+reach authentication tokens or the host's localStorage, while the WebSocket
+example in Plugin System Overview tells plugins to read
+localStorage['auth-token']. The second one is what actually works, since the
+module is imported into the same realm through a Blob URL. Any plugin needing
+host data has to scrape the token today.
+
+This adds api.host with three members. fetch() is GET-only, restricted to the
+/api/ prefix, resolved same-origin with traversal rejected, and any
+Authorization the plugin passes is dropped — the host attaches its own
+credentials through the existing authenticatedFetch. startNewSession() and
+openSession() cover the two navigation actions that have no HTTP equivalent.
+
+api.hostApiVersion and api.surface are additive; plugins that do not know about
+host keep working unchanged. Mutations and permission gating are deliberately
+out of scope.
+---
+ src/components/app/AppContent.tsx             |   1 +
+ src/components/main-content/types/types.ts    |   2 +
+ .../main-content/view/MainContent.tsx         |   3 +
+ .../plugins/hooks/usePluginHostApi.ts         |  56 ++++++++++
+ .../plugins/utils/pluginHostRequest.test.ts   |  85 +++++++++++++++
+ .../plugins/utils/pluginHostRequest.ts        | 103 ++++++++++++++++++
+ .../plugins/view/PluginTabContent.tsx         |  22 +++-
+ 7 files changed, 269 insertions(+), 3 deletions(-)
+ create mode 100644 src/components/plugins/hooks/usePluginHostApi.ts
+ create mode 100644 src/components/plugins/utils/pluginHostRequest.test.ts
+ create mode 100644 src/components/plugins/utils/pluginHostRequest.ts
+
+diff --git a/src/components/app/AppContent.tsx b/src/components/app/AppContent.tsx
+index 5d3b428..d7c4ccf 100644
+--- a/src/components/app/AppContent.tsx
++++ b/src/components/app/AppContent.tsx
+@@ -265,6 +265,7 @@ function AppContentInner() {
+           newSessionTrigger={newSessionTrigger}
+           onProjectSelect={handleProjectSelect}
+           onProjectsRefresh={() => void refreshProjectsSilently()}
++          onStartNewSession={handleNewSession}
+         />
+       </div>
+ 
+diff --git a/src/components/main-content/types/types.ts b/src/components/main-content/types/types.ts
+index a72b19d..ca42cac 100644
+--- a/src/components/main-content/types/types.ts
++++ b/src/components/main-content/types/types.ts
+@@ -61,6 +61,8 @@ export type MainContentProps = {
+   onProjectSelect: (project: Project) => void;
+   /** Silently re-syncs the sidebar project list after worktree projects change. */
+   onProjectsRefresh: () => void;
++  /** Opens a new chat for a project — the host action behind `api.host.startNewSession`. */
++  onStartNewSession: (project: Project) => void;
+ };
+ 
+ export type MainContentHeaderProps = {
+diff --git a/src/components/main-content/view/MainContent.tsx b/src/components/main-content/view/MainContent.tsx
+index 0ba247e..8da6b20 100644
+--- a/src/components/main-content/view/MainContent.tsx
++++ b/src/components/main-content/view/MainContent.tsx
+@@ -54,6 +54,7 @@ function MainContent({
+   newSessionTrigger,
+   onProjectSelect,
+   onProjectsRefresh,
++  onStartNewSession,
+ }: MainContentProps) {
+   const { preferences } = useUiPreferences();
+   const { showRawParameters, showThinking, sendByCtrlEnter } = preferences;
+@@ -226,6 +227,8 @@ function MainContent({
+                 pluginName={activeTab.replace('plugin:', '')}
+                 selectedProject={selectedProject}
+                 selectedSession={selectedSession}
++                onStartNewSession={onStartNewSession}
++                onOpenSession={(sessionId) => onNavigateToSession(sessionId)}
+               />
+             </div>
+           )}
+diff --git a/src/components/plugins/hooks/usePluginHostApi.ts b/src/components/plugins/hooks/usePluginHostApi.ts
+new file mode 100644
+index 0000000..98f6537
+--- /dev/null
++++ b/src/components/plugins/hooks/usePluginHostApi.ts
+@@ -0,0 +1,56 @@
++import { useMemo } from 'react';
++
++import { authenticatedFetch } from '../../../utils/api';
++import type { Project } from '../../../types/app';
++import {
++  buildPluginHostRequestInit,
++  normalizePluginHostPath,
++  type PluginHostApi,
++} from '../utils/pluginHostRequest';
++
++type PluginHostApiOptions = {
++  /** Opens a new chat for the project — the host's own "new session" action. */
++  onStartNewSession: (project: Project) => void;
++  /** Navigates to an existing session. */
++  onOpenSession: (sessionId: string) => void;
++};
++
++/**
++ * The sanctioned way for a plugin to reach the host.
++ *
++ * Without it, a plugin that needs host data has to read the JWT out of
++ * `localStorage['auth-token']` — which the plugin documentation simultaneously
++ * demonstrates and forbids. Here the host performs the request itself, so the
++ * plugin never sees a credential.
++ */
++export function usePluginHostApi({ onStartNewSession, onOpenSession }: PluginHostApiOptions): PluginHostApi {
++  return useMemo<PluginHostApi>(() => ({
++    async fetch(path, init) {
++      const safePath = normalizePluginHostPath(path);
++      if (!safePath) {
++        throw new Error(`Blocked plugin host request: only GET requests under /api/ are allowed (got "${String(path)}")`);
++      }
++      return authenticatedFetch(safePath, buildPluginHostRequestInit(init));
++    },
++
++    startNewSession(projectId) {
++      // Plugins address projects by id; the host's action needs the project record.
++      void (async () => {
++        try {
++          const response = await authenticatedFetch('/api/projects?skipSync=1');
++          if (!response.ok) return;
++          const payload: unknown = await response.json();
++          const projects = (Array.isArray(payload) ? payload : []) as Project[];
++          const project = projects.find((candidate) => candidate.projectId === projectId);
++          if (project) onStartNewSession(project);
++        } catch {
++          // Navigation is best-effort: a failed lookup leaves the UI untouched.
++        }
++      })();
++    },
++
++    openSession(_projectId, sessionId) {
++      if (typeof sessionId === 'string' && sessionId) onOpenSession(sessionId);
++    },
++  }), [onOpenSession, onStartNewSession]);
++}
+diff --git a/src/components/plugins/utils/pluginHostRequest.test.ts b/src/components/plugins/utils/pluginHostRequest.test.ts
+new file mode 100644
+index 0000000..7705346
+--- /dev/null
++++ b/src/components/plugins/utils/pluginHostRequest.test.ts
+@@ -0,0 +1,85 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++
++import type { PluginContext } from './pluginHostRequest';
++import {
++  PLUGIN_HOST_API_VERSION,
++  buildPluginHostRequestInit,
++  createPluginApi,
++  normalizePluginHostPath,
++} from './pluginHostRequest';
++
++test('the host request is always a GET, whatever the plugin asked for', () => {
++  const init = buildPluginHostRequestInit({ headers: { 'X-Trace': '1' } });
++
++  assert.equal(init.method, 'GET');
++  assert.deepEqual(init.headers, { 'X-Trace': '1' });
++
++  // A plugin passing a method through does not change anything: the field is
++  // not part of the accepted init and the method is set by the host.
++  const forced = buildPluginHostRequestInit({ method: 'POST', body: 'x' } as never);
++  assert.equal(forced.method, 'GET');
++  assert.equal((forced as { body?: unknown }).body, undefined);
++});
++
++test('only same-origin, non-traversing /api/ paths are accepted', () => {
++  assert.equal(normalizePluginHostPath('/api/projects?skipSync=1'), '/api/projects?skipSync=1');
++  assert.equal(normalizePluginHostPath('/api/projects/abc/sessions?limit=1'), '/api/projects/abc/sessions?limit=1');
++
++  for (const rejected of [
++    '/etc/passwd',
++    '//evil.example/x',
++    '/api/../secret',
++    '/api/%2e%2e/secret',
++    'https://evil.example/api/x',
++    'api/projects',
++    '/apixyz/projects',
++    '/api/a\\b',
++    '/api/a b',
++    '/api/%zz',
++    42,
++    null,
++    undefined,
++  ]) {
++    assert.equal(normalizePluginHostPath(rejected as never), null, `${String(rejected)} must be rejected`);
++  }
++});
++
++test('an Authorization header supplied by the plugin is ignored', () => {
++  const init = buildPluginHostRequestInit({
++    headers: { Authorization: 'Bearer forged', authorization: 'Bearer forged too', Accept: 'application/json' },
++  });
++
++  assert.deepEqual(init.headers, { Accept: 'application/json' });
++});
++
++test('the api object keeps its existing shape for plugins that ignore host', async () => {
++  let context: PluginContext = { theme: 'dark', project: null, session: null };
++  const host = { fetch: async () => new Response(), startNewSession() {}, openSession() {} };
++
++  const api = createPluginApi({
++    getContext: () => context,
++    onContextChange: () => () => undefined,
++    rpc: async () => ({ ok: true }),
++    getHost: () => host,
++  });
++
++  // Pre-existing members, unchanged.
++  assert.deepEqual(api.context, context);
++  assert.equal(typeof api.onContextChange, 'function');
++  assert.equal(typeof api.rpc, 'function');
++  assert.deepEqual(await api.rpc('GET', '/x'), { ok: true });
++
++  // Additions are exactly these three, and nothing else appeared.
++  assert.equal(api.hostApiVersion, PLUGIN_HOST_API_VERSION);
++  assert.equal(api.host, host);
++  assert.equal(api.surface, 'tab');
++  assert.deepEqual(
++    Object.keys(api).sort(),
++    ['context', 'host', 'hostApiVersion', 'onContextChange', 'rpc', 'surface'],
++  );
++
++  // `context` stays a live getter, as before.
++  context = { theme: 'light', project: null, session: null };
++  assert.equal(api.context.theme, 'light');
++});
+diff --git a/src/components/plugins/utils/pluginHostRequest.ts b/src/components/plugins/utils/pluginHostRequest.ts
+new file mode 100644
+index 0000000..928903d
+--- /dev/null
++++ b/src/components/plugins/utils/pluginHostRequest.ts
+@@ -0,0 +1,103 @@
++/**
++ * Pure rules behind `api.host`: what a plugin is allowed to request, and the
++ * shape of the api object handed to it. Kept free of imports with side effects
++ * so it stays directly testable.
++ */
++
++/** Bumped when the shape of `api.host` changes; plugins feature-detect first, this is a tiebreaker. */
++export const PLUGIN_HOST_API_VERSION = 1;
++
++export type PluginHostFetchInit = {
++  headers?: Record<string, string>;
++  signal?: AbortSignal;
++};
++
++export type PluginHostApi = {
++  /** Authenticated, read-only access to the host's own REST API. */
++  fetch: (path: string, init?: PluginHostFetchInit) => Promise<Response>;
++  /** Navigation intents — these have no HTTP equivalent in the host. */
++  startNewSession: (projectId: string) => void;
++  openSession: (projectId: string, sessionId: string) => void;
++};
++
++export type PluginContext = {
++  theme: 'dark' | 'light';
++  project: { name: string; path: string } | null;
++  session: { id: string; title: string } | null;
++};
++
++export type PluginApi = {
++  readonly context: PluginContext;
++  onContextChange: (callback: (context: PluginContext) => void) => () => void;
++  rpc: (method: string, path: string, body?: unknown) => Promise<unknown>;
++  readonly hostApiVersion: typeof PLUGIN_HOST_API_VERSION;
++  readonly host: PluginHostApi;
++  readonly surface: 'tab' | 'sidebar';
++};
++
++/**
++ * Accepts only same-origin, non-traversing paths under `/api/`.
++ *
++ * Returns the path to use, or `null` if the request must be refused. Encoded
++ * traversal is caught by decoding first: `/api/%2e%2e/secret` is `/api/../secret`.
++ */
++export function normalizePluginHostPath(rawPath: unknown): string | null {
++  if (typeof rawPath !== 'string') return null;
++
++  const path = rawPath.trim();
++  if (!path.startsWith('/api/')) return null; // rules out schemes, `//host` and relative paths
++  if (path.includes('\\') || /\s/.test(path)) return null;
++
++  let decoded = path;
++  try {
++    decoded = decodeURIComponent(path);
++  } catch {
++    return null; // malformed percent-encoding
++  }
++
++  if (decoded.includes('..') || decoded.includes('\\') || !decoded.startsWith('/api/')) return null;
++
++  return path;
++}
++
++/**
++ * Forces GET and drops any `Authorization` the caller tried to set: the host
++ * attaches its own credentials, and a plugin can neither read nor forge them.
++ */
++export function buildPluginHostRequestInit(init?: PluginHostFetchInit): RequestInit {
++  const headers: Record<string, string> = {};
++  for (const [name, value] of Object.entries(init?.headers ?? {})) {
++    if (name.toLowerCase() === 'authorization') continue;
++    headers[name] = value;
++  }
++
++  return {
++    method: 'GET',
++    headers,
++    ...(init?.signal ? { signal: init.signal } : {}),
++  };
++}
++
++/**
++ * Builds the object handed to a plugin module's `mount()`.
++ *
++ * `context` and `host` are getters so a module that captured the api object once
++ * still observes the current values; the pre-existing members keep their exact
++ * shape, so plugins unaware of `host` behave as before.
++ */
++export function createPluginApi(sources: {
++  getContext: () => PluginContext;
++  onContextChange: (callback: (context: PluginContext) => void) => () => void;
++  rpc: (method: string, path: string, body?: unknown) => Promise<unknown>;
++  getHost: () => PluginHostApi;
++  surface?: 'tab' | 'sidebar';
++}): PluginApi {
++  return {
++    get context() { return sources.getContext(); },
++    onContextChange: sources.onContextChange,
++    rpc: sources.rpc,
++    hostApiVersion: PLUGIN_HOST_API_VERSION,
++    get host() { return sources.getHost(); },
++    surface: sources.surface ?? 'tab',
++  };
++}
+diff --git a/src/components/plugins/view/PluginTabContent.tsx b/src/components/plugins/view/PluginTabContent.tsx
+index 7e7f8db..8423933 100644
+--- a/src/components/plugins/view/PluginTabContent.tsx
++++ b/src/components/plugins/view/PluginTabContent.tsx
+@@ -3,11 +3,17 @@ import { useTheme } from '../../../contexts/ThemeContext';
+ import { authenticatedFetch } from '../../../utils/api';
+ import { usePlugins } from '../../../contexts/PluginsContext';
+ import type { Project, ProjectSession } from '../../../types/app';
++import { usePluginHostApi } from '../hooks/usePluginHostApi';
++import { createPluginApi } from '../utils/pluginHostRequest';
+ 
+ type PluginTabContentProps = {
+   pluginName: string;
+   selectedProject: Project | null;
+   selectedSession: ProjectSession | null;
++  /** Opens a new chat for a project on the plugin's behalf. */
++  onStartNewSession: (project: Project) => void;
++  /** Navigates to an existing session on the plugin's behalf. */
++  onOpenSession: (sessionId: string) => void;
+ };
+ 
+ type PluginContext = {
+@@ -45,10 +51,17 @@ export default function PluginTabContent({
+   pluginName,
+   selectedProject,
+   selectedSession,
++  onStartNewSession,
++  onOpenSession,
+ }: PluginTabContentProps) {
+   const containerRef = useRef<HTMLDivElement>(null);
+   const { isDarkMode } = useTheme();
+   const { plugins } = usePlugins();
++  const hostApi = usePluginHostApi({ onStartNewSession, onOpenSession });
++  // Read through a ref for the same reason as the context: the plugin module
++  // captures the api object once, on mount.
++  const hostApiRef = useRef(hostApi);
++  hostApiRef.current = hostApi;
+ 
+   // Stable refs so effects don't need context values in their dep arrays
+   const contextRef = useRef<PluginContext>(buildContext(isDarkMode, selectedProject, selectedSession));
+@@ -92,8 +105,8 @@ export default function PluginTabContent({
+ 
+         moduleRef.current = mod;
+ 
+-        const api = {
+-          get context(): PluginContext { return contextRef.current; },
++        const api = createPluginApi({
++          getContext: () => contextRef.current,
+ 
+           onContextChange(cb: (ctx: PluginContext) => void): () => void {
+             contextCallbacks.add(cb);
+@@ -112,7 +125,10 @@ export default function PluginTabContent({
+             if (!res.ok) throw new Error(`RPC error ${res.status}`);
+             return res.json();
+           },
+-        };
++
++          getHost: () => hostApiRef.current,
++          surface: 'tab',
++        });
+ 
+         await mod.mount?.(container, api);
+         if (!active) {
+-- 
+2.55.0
+

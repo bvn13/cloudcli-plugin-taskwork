@@ -1,0 +1,1204 @@
+From 4043bf283d5da6ac0fb3ef41ce3110680cf3f3b3 Mon Sep 17 00:00:00 2001
+From: bvn13 <from.github@bvn13.me>
+Date: Fri, 21 Aug 2026 21:53:54 +0300
+Subject: [PATCH] feat(plugins): let plugins contribute a section to the
+ sidebar
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The main area already has a generic mechanism for plugin tabs; the sidebar has
+none, so a plugin whose content belongs next to the project list has nowhere to
+go.
+
+A manifest may now carry an optional sidebar object — label, icon, order,
+replacesTab — validated and normalised on the server, so only known fields
+reach the client. Its chip joins the built-in ones in a single ordered row
+(projects 100, conversations 200, running 300, archived 400), which lets a
+plugin place itself anywhere in that row by data alone. While a plugin section
+is active the search box is hidden, and replacesTab keeps the plugin from
+appearing both in the sidebar and in the main-area tabs.
+
+slot stays 'tab' on purpose: adding a new slot value would fail validation on
+every older host, so such a plugin could not be installed at all.
+
+With no sidebar-declaring plugin enabled, the sidebar behaves exactly as
+before.
+---
+ .../plugins/plugin-registry.service.ts        |  55 +++
+ .../tests/plugin-registry.sidebar.test.ts     |  64 ++++
+ .../subcomponents/MainContentTabSwitcher.tsx  |   5 +-
+ .../plugins/view/PluginSettingsTab.tsx        |   3 +-
+ .../sidebar/hooks/useSidebarController.ts     |  50 +++
+ src/components/sidebar/types/types.ts         |   8 +
+ .../sidebar/utils/sidebarTabs.test.ts         |  80 +++++
+ src/components/sidebar/utils/sidebarTabs.ts   |  89 +++++
+ src/components/sidebar/view/Sidebar.tsx       |  11 +-
+ .../view/subcomponents/SidebarContent.tsx     |  27 +-
+ .../view/subcomponents/SidebarHeader.tsx      | 340 +++++++++---------
+ .../subcomponents/SidebarPluginSurface.tsx    | 142 ++++++++
+ src/contexts/PluginsContext.tsx               |   7 +
+ 13 files changed, 710 insertions(+), 171 deletions(-)
+ create mode 100644 server/modules/plugins/tests/plugin-registry.sidebar.test.ts
+ create mode 100644 src/components/sidebar/utils/sidebarTabs.test.ts
+ create mode 100644 src/components/sidebar/utils/sidebarTabs.ts
+ create mode 100644 src/components/sidebar/view/subcomponents/SidebarPluginSurface.tsx
+
+diff --git a/server/modules/plugins/plugin-registry.service.ts b/server/modules/plugins/plugin-registry.service.ts
+index f581651..594e553 100644
+--- a/server/modules/plugins/plugin-registry.service.ts
++++ b/server/modules/plugins/plugin-registry.service.ts
+@@ -92,9 +92,63 @@ export function validateManifest(manifest) {
+     }
+   }
+ 
++  const sidebarError = validateSidebar(manifest.sidebar);
++  if (sidebarError) {
++    return { valid: false, error: sidebarError };
++  }
++
+   return { valid: true };
+ }
+ 
++export const SIDEBAR_LABEL_MAX_LENGTH = 24;
++export const SIDEBAR_DEFAULT_ORDER = 500;
++
++/** Returns an error message, or null when the optional `sidebar` object is acceptable. */
++function validateSidebar(sidebar) {
++  if (sidebar === undefined || sidebar === null) return null;
++
++  if (typeof sidebar !== 'object' || Array.isArray(sidebar)) {
++    return 'Sidebar must be an object';
++  }
++
++  if (sidebar.label !== undefined) {
++    if (typeof sidebar.label !== 'string' || sidebar.label.trim().length === 0 || sidebar.label.length > SIDEBAR_LABEL_MAX_LENGTH) {
++      return `Sidebar label must be a string of 1-${SIDEBAR_LABEL_MAX_LENGTH} characters`;
++    }
++  }
++
++  if (sidebar.icon !== undefined && typeof sidebar.icon !== 'string') {
++    return 'Sidebar icon must be a string';
++  }
++
++  if (sidebar.order !== undefined && (typeof sidebar.order !== 'number' || !Number.isFinite(sidebar.order))) {
++    return 'Sidebar order must be a finite number';
++  }
++
++  if (sidebar.replacesTab !== undefined && typeof sidebar.replacesTab !== 'boolean') {
++    return 'Sidebar replacesTab must be a boolean';
++  }
++
++  return null;
++}
++
++/**
++ * Normalises the manifest's `sidebar` object for the client.
++ *
++ * Returning a fixed shape matters: the plugin list is a field whitelist, so
++ * arbitrary manifest content never reaches the frontend.
++ */
++export function normalizeSidebar(sidebar, manifest) {
++  if (!sidebar || typeof sidebar !== 'object' || Array.isArray(sidebar)) return null;
++
++  return {
++    label: typeof sidebar.label === 'string' && sidebar.label.trim() ? sidebar.label : manifest.displayName,
++    icon: typeof sidebar.icon === 'string' && sidebar.icon ? sidebar.icon : (manifest.icon || 'Puzzle'),
++    order: typeof sidebar.order === 'number' && Number.isFinite(sidebar.order) ? sidebar.order : SIDEBAR_DEFAULT_ORDER,
++    replacesTab: sidebar.replacesTab === true,
++  };
++}
++
+ const BUILD_TIMEOUT_MS = 60_000;
+ 
+ /** Run `npm run build` if the plugin's package.json declares a build script. */
+@@ -212,6 +266,7 @@ export function scanPlugins() {
+         entry: manifest.entry,
+         server: manifest.server || null,
+         permissions: manifest.permissions || [],
++        sidebar: normalizeSidebar(manifest.sidebar, manifest),
+         enabled: config[manifest.name]?.enabled !== false, // enabled by default
+         dirName: entry.name,
+         repoUrl,
+diff --git a/server/modules/plugins/tests/plugin-registry.sidebar.test.ts b/server/modules/plugins/tests/plugin-registry.sidebar.test.ts
+new file mode 100644
+index 0000000..f63321d
+--- /dev/null
++++ b/server/modules/plugins/tests/plugin-registry.sidebar.test.ts
+@@ -0,0 +1,64 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++
++import { normalizeSidebar, validateManifest } from '../plugin-registry.service.js';
++
++const manifest = (overrides: Record<string, unknown> = {}) => ({
++  name: 'demo',
++  displayName: 'Demo Plugin',
++  entry: 'build/client/index.js',
++  icon: 'icon.svg',
++  ...overrides,
++});
++
++test('a manifest without a sidebar object stays valid', () => {
++  assert.deepEqual(validateManifest(manifest()), { valid: true });
++  assert.equal(normalizeSidebar(undefined, manifest()), null);
++  assert.equal(normalizeSidebar(null, manifest()), null);
++});
++
++test('a well-formed sidebar object is accepted', () => {
++  const result = validateManifest(manifest({
++    sidebar: { label: 'Notes', icon: 'ListTodo', order: 50, replacesTab: true },
++  }));
++
++  assert.deepEqual(result, { valid: true });
++});
++
++test('a malformed sidebar object is rejected with a reason', () => {
++  const rejected = [
++    { sidebar: 'Notes' },
++    { sidebar: [] },
++    { sidebar: { label: '' } },
++    { sidebar: { label: 'x'.repeat(25) } },
++    { sidebar: { order: 'first' } },
++    { sidebar: { order: Number.POSITIVE_INFINITY } },
++    { sidebar: { icon: 42 } },
++    { sidebar: { replacesTab: 'yes' } },
++  ];
++
++  for (const overrides of rejected) {
++    const result = validateManifest(manifest(overrides));
++    assert.equal(result.valid, false, `${JSON.stringify(overrides)} must be rejected`);
++    assert.match(String(result.error), /[Ss]idebar/);
++  }
++});
++
++test('normalizeSidebar fills in defaults from the manifest', () => {
++  assert.deepEqual(normalizeSidebar({}, manifest()), {
++    label: 'Demo Plugin',
++    icon: 'icon.svg',
++    order: 500,
++    replacesTab: false,
++  });
++
++  assert.deepEqual(normalizeSidebar({ label: 'Notes', order: 50, replacesTab: true }, manifest()), {
++    label: 'Notes',
++    icon: 'icon.svg',
++    order: 50,
++    replacesTab: true,
++  });
++
++  // No icon anywhere falls back to the generic plugin icon.
++  assert.equal(normalizeSidebar({}, manifest({ icon: undefined }))?.icon, 'Puzzle');
++});
+diff --git a/src/components/main-content/view/subcomponents/MainContentTabSwitcher.tsx b/src/components/main-content/view/subcomponents/MainContentTabSwitcher.tsx
+index 4e85a9d..cf5eb7f 100644
+--- a/src/components/main-content/view/subcomponents/MainContentTabSwitcher.tsx
++++ b/src/components/main-content/view/subcomponents/MainContentTabSwitcher.tsx
+@@ -7,6 +7,7 @@ import { Tooltip, PillBar, Pill } from '../../../../shared/view/ui';
+ import type { AppTab } from '../../../../types/app';
+ import { usePlugins } from '../../../../contexts/PluginsContext';
+ import PluginIcon from '../../../plugins/view/PluginIcon';
++import { pluginsShownAsTabs } from '../../../sidebar/utils/sidebarTabs';
+ 
+ type MainContentTabSwitcherProps = {
+   activeTab: AppTab;
+@@ -68,7 +69,9 @@ export default function MainContentTabSwitcher({
+     ...(shouldShowTasksTab ? [TASKS_TAB] : []),
+   ];
+ 
+-  const pluginTabs: PluginTab[] = plugins
++  // A plugin that took over a sidebar section with `replacesTab` is not shown
++  // here as well — it lives in one place, not two.
++  const pluginTabs: PluginTab[] = pluginsShownAsTabs(plugins)
+     .filter((p) => p.enabled)
+     .map((p) => ({
+       kind: 'plugin',
+diff --git a/src/components/plugins/view/PluginSettingsTab.tsx b/src/components/plugins/view/PluginSettingsTab.tsx
+index db197c6..885366a 100644
+--- a/src/components/plugins/view/PluginSettingsTab.tsx
++++ b/src/components/plugins/view/PluginSettingsTab.tsx
+@@ -22,6 +22,7 @@ import {
+ 
+ import { usePlugins } from '../../../contexts/PluginsContext';
+ import type { Plugin } from '../../../contexts/PluginsContext';
++import { describePluginSurfaces } from '../../sidebar/utils/sidebarTabs';
+ 
+ import PluginIcon from './PluginIcon';
+ 
+@@ -256,7 +257,7 @@ function PluginCard({
+                   v{plugin.version}
+                 </span>
+                 <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+-                  {plugin.slot}
++                  {describePluginSurfaces(plugin)}
+                 </span>
+                 <ServerDot running={!!plugin.serverRunning} t={t} />
+               </div>
+diff --git a/src/components/sidebar/hooks/useSidebarController.ts b/src/components/sidebar/hooks/useSidebarController.ts
+index c8c294c..60e8ac4 100644
+--- a/src/components/sidebar/hooks/useSidebarController.ts
++++ b/src/components/sidebar/hooks/useSidebarController.ts
+@@ -3,6 +3,7 @@ import type { TFunction } from 'i18next';
+ 
+ import { api } from '../../../utils/api';
+ import { usePaletteOps } from '../../../contexts/PaletteOpsContext';
++import { usePlugins } from '../../../contexts/PluginsContext';
+ import type { Project, ProjectSession, LLMProvider } from '../../../types/app';
+ import type { SessionActivityMap } from '../../../hooks/useSessionProtection';
+ import type {
+@@ -12,9 +13,11 @@ import type {
+   ProjectSortOrder,
+   RecentConversationListItem,
+   SidebarSearchMode,
++  SidebarTab,
+   SessionDeleteConfirmation,
+   SessionWithProvider,
+ } from '../types/types';
++import { SIDEBAR_TAB_STORAGE_KEY, parseSidebarTab, pluginSidebarChips, sidebarTabKey } from '../utils/sidebarTabs';
+ import {
+   clearLegacyStarredProjectIds,
+   filterProjects,
+@@ -153,6 +156,50 @@ export function useSidebarController({
+   const [sessionDeleteConfirmation, setSessionDeleteConfirmation] = useState<SessionDeleteConfirmation | null>(null);
+   const [showVersionModal, setShowVersionModal] = useState(false);
+   const [searchMode, setSearchMode] = useState<SidebarSearchMode>('projects');
++  // Which section is on screen. Built-in sections keep driving `searchMode`;
++  // a plugin section replaces the list below the header.
++  const [sidebarTab, setSidebarTabState] = useState<SidebarTab>({ kind: 'builtin', mode: 'projects' });
++  const { plugins } = usePlugins();
++  const sidebarPluginChips = useMemo(() => pluginSidebarChips(plugins), [plugins]);
++  const sidebarTabRestoredRef = useRef(false);
++
++  const setSidebarTab = useCallback((tab: SidebarTab) => {
++    setSidebarTabState(tab);
++    if (tab.kind === 'builtin') setSearchMode(tab.mode);
++    try {
++      localStorage.setItem(SIDEBAR_TAB_STORAGE_KEY, sidebarTabKey(tab));
++    } catch {
++      // Storage unavailable — the selection just stops being sticky.
++    }
++  }, []);
++
++  // Restores the persisted section once the plugin list is known, and drops a
++  // plugin section that has since been disabled or uninstalled.
++  useEffect(() => {
++    const pluginNames = sidebarPluginChips.map((chip) => chip.name);
++
++    if (sidebarTab.kind === 'plugin' && !pluginNames.includes(sidebarTab.name)) {
++      setSidebarTabState({ kind: 'builtin', mode: 'projects' });
++      return;
++    }
++
++    if (sidebarTabRestoredRef.current) return;
++
++    let stored: string | null = null;
++    try {
++      stored = localStorage.getItem(SIDEBAR_TAB_STORAGE_KEY);
++    } catch {
++      stored = null;
++    }
++
++    // A stored plugin section waits for the plugin list to arrive.
++    if (stored?.startsWith('plugin:') && pluginNames.length === 0) return;
++
++    sidebarTabRestoredRef.current = true;
++    const restored = parseSidebarTab(stored, pluginNames);
++    setSidebarTabState(restored);
++    if (restored.kind === 'builtin') setSearchMode(restored.mode);
++  }, [sidebarPluginChips, sidebarTab]);
+   const [conversationResults, setConversationResults] = useState<ConversationSearchResults | null>(null);
+   const [isSearching, setIsSearching] = useState(false);
+   const [searchProgress, setSearchProgress] = useState<SearchProgress | null>(null);
+@@ -1120,6 +1167,9 @@ export function useSidebarController({
+     setEditingSessionName,
+     searchMode,
+     setSearchMode,
++    sidebarTab,
++    setSidebarTab,
++    sidebarPluginChips,
+     conversationResults,
+     isSearching,
+     searchProgress,
+diff --git a/src/components/sidebar/types/types.ts b/src/components/sidebar/types/types.ts
+index 5c71250..a706764 100644
+--- a/src/components/sidebar/types/types.ts
++++ b/src/components/sidebar/types/types.ts
+@@ -3,6 +3,14 @@ import type { SessionActivityMap } from '../../../hooks/useSessionProtection';
+ 
+ export type ProjectSortOrder = 'name' | 'date';
+ export type SidebarSearchMode = 'projects' | 'conversations' | 'running' | 'archived';
++
++/**
++ * Which section the sidebar is showing: one of the built-in modes, or a section
++ * contributed by a plugin through its manifest.
++ */
++export type SidebarTab =
++  | { kind: 'builtin'; mode: SidebarSearchMode }
++  | { kind: 'plugin'; name: string };
+ export type ArchivedProjectListItem = Project & { isArchived: true };
+ 
+ export type SessionWithProvider = ProjectSession & {
+diff --git a/src/components/sidebar/utils/sidebarTabs.test.ts b/src/components/sidebar/utils/sidebarTabs.test.ts
+new file mode 100644
+index 0000000..810b703
+--- /dev/null
++++ b/src/components/sidebar/utils/sidebarTabs.test.ts
+@@ -0,0 +1,80 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++
++import {
++  BUILT_IN_SIDEBAR_ORDER,
++  describePluginSurfaces,
++  parseSidebarTab,
++  pluginSidebarChips,
++  pluginsShownAsTabs,
++  showsSearchTools,
++  sidebarTabKey,
++} from './sidebarTabs';
++
++const plugin = (overrides: Record<string, unknown> = {}) => ({
++  name: 'demo',
++  displayName: 'Demo Plugin',
++  enabled: true,
++  sidebar: null,
++  ...overrides,
++}) as Parameters<typeof pluginSidebarChips>[0][number];
++
++test('a plugin with a low order sits left of Projects', () => {
++  const chips = pluginSidebarChips([
++    plugin({ name: 'early', sidebar: { label: 'Notes', icon: 'i.svg', order: 50, replacesTab: true } }),
++    plugin({ name: 'late', sidebar: { label: 'Notes', icon: 'i.svg', order: 900, replacesTab: false } }),
++  ]);
++
++  assert.deepEqual(chips.map((chip) => chip.name), ['early', 'late']);
++  assert.ok(chips[0].order < BUILT_IN_SIDEBAR_ORDER.projects);
++  assert.ok(chips[1].order > BUILT_IN_SIDEBAR_ORDER.archived);
++});
++
++test('only enabled plugins that declared a sidebar produce a chip', () => {
++  const chips = pluginSidebarChips([
++    plugin({ name: 'no-sidebar' }),
++    plugin({ name: 'disabled', enabled: false, sidebar: { label: 'X', icon: 'i.svg', order: 10, replacesTab: false } }),
++    plugin({ name: 'shown', sidebar: { label: 'Shown', icon: 'i.svg', order: 10, replacesTab: false } }),
++  ]);
++
++  assert.deepEqual(chips.map((chip) => chip.name), ['shown']);
++});
++
++test('replacesTab removes the plugin from the main-area tabs', () => {
++  const plugins = [
++    plugin({ name: 'in-tabs', sidebar: { label: 'A', icon: 'i.svg', order: 10, replacesTab: false } }),
++    plugin({ name: 'sidebar-only', sidebar: { label: 'B', icon: 'i.svg', order: 20, replacesTab: true } }),
++    plugin({ name: 'plain' }),
++  ];
++
++  assert.deepEqual(pluginsShownAsTabs(plugins).map((p) => p.name), ['in-tabs', 'plain']);
++});
++
++test('the persisted tab is restored, and a vanished plugin falls back to projects', () => {
++  assert.deepEqual(parseSidebarTab('plugin:demo', ['demo']), { kind: 'plugin', name: 'demo' });
++  assert.deepEqual(parseSidebarTab('plugin:gone', ['demo']), { kind: 'builtin', mode: 'projects' });
++  assert.deepEqual(parseSidebarTab('archived', []), { kind: 'builtin', mode: 'archived' });
++  assert.deepEqual(parseSidebarTab('nonsense', []), { kind: 'builtin', mode: 'projects' });
++  assert.deepEqual(parseSidebarTab(null, []), { kind: 'builtin', mode: 'projects' });
++
++  assert.equal(sidebarTabKey({ kind: 'plugin', name: 'demo' }), 'plugin:demo');
++  assert.equal(sidebarTabKey({ kind: 'builtin', mode: 'running' }), 'running');
++});
++
++test('the search box belongs to the built-in sections only', () => {
++  assert.equal(showsSearchTools({ kind: 'builtin', mode: 'projects' }), true);
++  assert.equal(showsSearchTools({ kind: 'plugin', name: 'demo' }), false);
++});
++
++test('the settings list names the surfaces a plugin occupies', () => {
++  const surfaces = (overrides: Record<string, unknown>) => describePluginSurfaces({ ...plugin(overrides), slot: 'tab' });
++
++  assert.equal(surfaces({}), 'Tab');
++  assert.equal(surfaces({ sidebar: { label: 'A', icon: 'i.svg', order: 10, replacesTab: false } }), 'Tab + Sidebar');
++  assert.equal(surfaces({ sidebar: { label: 'A', icon: 'i.svg', order: 10, replacesTab: true } }), 'Sidebar');
++});
++
++test('a host with no sidebar plugins produces no chips at all', () => {
++  assert.deepEqual(pluginSidebarChips([]), []);
++  assert.deepEqual(pluginSidebarChips([plugin(), plugin({ name: 'other' })]), []);
++});
+diff --git a/src/components/sidebar/utils/sidebarTabs.ts b/src/components/sidebar/utils/sidebarTabs.ts
+new file mode 100644
+index 0000000..2af1c0f
+--- /dev/null
++++ b/src/components/sidebar/utils/sidebarTabs.ts
+@@ -0,0 +1,89 @@
++import type { SidebarSearchMode, SidebarTab } from '../types/types';
++
++/**
++ * Where the built-in sections sit in the chip row. Plugins carry their own
++ * `order`, so a plugin can place itself before `Projects` purely by data.
++ */
++export const BUILT_IN_SIDEBAR_ORDER: Record<SidebarSearchMode, number> = {
++  projects: 100,
++  conversations: 200,
++  running: 300,
++  archived: 400,
++};
++
++export const SIDEBAR_TAB_STORAGE_KEY = 'sidebar-tab';
++
++export type SidebarPluginChip = {
++  name: string;
++  label: string;
++  icon: string;
++  order: number;
++  replacesTab: boolean;
++};
++
++type PluginLike = {
++  name: string;
++  displayName: string;
++  enabled: boolean;
++  sidebar?: { label: string; icon: string; order: number; replacesTab: boolean } | null;
++};
++
++/** Serialised form used for persistence and for React keys. */
++export function sidebarTabKey(tab: SidebarTab): string {
++  return tab.kind === 'plugin' ? `plugin:${tab.name}` : tab.mode;
++}
++
++export function isSameSidebarTab(a: SidebarTab, b: SidebarTab): boolean {
++  return sidebarTabKey(a) === sidebarTabKey(b);
++}
++
++/** Enabled plugins that asked for a sidebar section, in the order they should appear. */
++export function pluginSidebarChips(plugins: PluginLike[]): SidebarPluginChip[] {
++  return plugins
++    .filter((plugin) => plugin.enabled && plugin.sidebar)
++    .map((plugin) => ({
++      name: plugin.name,
++      label: plugin.sidebar?.label ?? plugin.displayName,
++      icon: plugin.sidebar?.icon ?? '',
++      order: plugin.sidebar?.order ?? 500,
++      replacesTab: plugin.sidebar?.replacesTab === true,
++    }))
++    .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label));
++}
++
++/** Plugins that keep their tab in the main area (`replacesTab` is not set). */
++export function pluginsShownAsTabs<T extends PluginLike>(plugins: T[]): T[] {
++  return plugins.filter((plugin) => plugin.sidebar?.replacesTab !== true);
++}
++
++/**
++ * Restores the persisted tab. A plugin that has since been disabled or removed
++ * falls back to `projects` instead of leaving the sidebar blank.
++ */
++export function parseSidebarTab(raw: string | null, availablePluginNames: string[]): SidebarTab {
++  if (!raw) return { kind: 'builtin', mode: 'projects' };
++
++  if (raw.startsWith('plugin:')) {
++    const name = raw.slice('plugin:'.length);
++    return availablePluginNames.includes(name)
++      ? { kind: 'plugin', name }
++      : { kind: 'builtin', mode: 'projects' };
++  }
++
++  return raw in BUILT_IN_SIDEBAR_ORDER
++    ? { kind: 'builtin', mode: raw as SidebarSearchMode }
++    : { kind: 'builtin', mode: 'projects' };
++}
++
++/** The search box belongs to the built-in sections; a plugin surface owns its own header row. */
++export function showsSearchTools(tab: SidebarTab): boolean {
++  return tab.kind === 'builtin';
++}
++
++/** Human-readable list of the surfaces a plugin occupies, for the settings list. */
++export function describePluginSurfaces(plugin: PluginLike & { slot?: string }): string {
++  const surfaces: string[] = [];
++  if (plugin.sidebar?.replacesTab !== true) surfaces.push(plugin.slot === 'tab' || !plugin.slot ? 'Tab' : plugin.slot);
++  if (plugin.sidebar) surfaces.push('Sidebar');
++  return surfaces.join(' + ');
++}
+diff --git a/src/components/sidebar/view/Sidebar.tsx b/src/components/sidebar/view/Sidebar.tsx
+index 7d475b5..80a66f1 100644
+--- a/src/components/sidebar/view/Sidebar.tsx
++++ b/src/components/sidebar/view/Sidebar.tsx
+@@ -67,6 +67,9 @@ function Sidebar({
+     editingSessionName,
+     searchFilter,
+     searchMode,
++    sidebarTab,
++    setSidebarTab,
++    sidebarPluginChips,
+     setSearchMode,
+     conversationResults,
+     isSearching,
+@@ -260,10 +263,12 @@ function Sidebar({
+             onSearchFilterChange={setSearchFilter}
+             onClearSearchFilter={() => setSearchFilter('')}
+             searchMode={searchMode}
+-            onSearchModeChange={(mode) => {
+-              setSearchMode(mode);
+-              if (mode === 'projects') clearConversationResults();
++            sidebarTab={sidebarTab}
++            onSidebarTabChange={(tab) => {
++              setSidebarTab(tab);
++              if (tab.kind !== 'builtin' || tab.mode === 'projects') clearConversationResults();
+             }}
++            pluginChips={sidebarPluginChips}
+             conversationResults={conversationResults}
+             isSearching={isSearching}
+             searchProgress={searchProgress}
+diff --git a/src/components/sidebar/view/subcomponents/SidebarContent.tsx b/src/components/sidebar/view/subcomponents/SidebarContent.tsx
+index 8dd9f74..55deded 100644
+--- a/src/components/sidebar/view/subcomponents/SidebarContent.tsx
++++ b/src/components/sidebar/view/subcomponents/SidebarContent.tsx
+@@ -6,12 +6,14 @@ import { ScrollArea } from '../../../../shared/view/ui';
+ import type { Project } from '../../../../types/app';
+ import type { ReleaseInfo } from '../../../../shared/types';
+ import type { ConversationSearchResults, SearchProgress } from '../../hooks/useSidebarController';
+-import type { ArchivedProjectListItem, ArchivedSessionListItem, RecentConversationListItem, SidebarSearchMode } from '../../types/types';
++import type { ArchivedProjectListItem, ArchivedSessionListItem, RecentConversationListItem, SidebarSearchMode, SidebarTab } from '../../types/types';
++import type { SidebarPluginChip } from '../../utils/sidebarTabs';
+ import LLMProviderLogo from '../../../llm-provider-logo/LLMProviderLogo';
+ import { formatCompactAge, getAllSessions } from '../../utils/utils';
+ 
+ import SidebarFooter from './SidebarFooter';
+ import SidebarHeader from './SidebarHeader';
++import SidebarPluginSurface from './SidebarPluginSurface';
+ import SidebarProjectList, { type SidebarProjectListProps } from './SidebarProjectList';
+ import SidebarRecentConversations from './SidebarRecentConversations';
+ 
+@@ -106,7 +108,10 @@ type SidebarContentProps = {
+   onSearchFilterChange: (value: string) => void;
+   onClearSearchFilter: () => void;
+   searchMode: SidebarSearchMode;
+-  onSearchModeChange: (mode: SidebarSearchMode) => void;
++  /** Active sidebar section; a plugin section replaces the project list. */
++  sidebarTab: SidebarTab;
++  onSidebarTabChange: (tab: SidebarTab) => void;
++  pluginChips: SidebarPluginChip[];
+   conversationResults: ConversationSearchResults | null;
+   isSearching: boolean;
+   searchProgress: SearchProgress | null;
+@@ -154,7 +159,9 @@ export default function SidebarContent({
+   onSearchFilterChange,
+   onClearSearchFilter,
+   searchMode,
+-  onSearchModeChange,
++  sidebarTab,
++  onSidebarTabChange,
++  pluginChips,
+   conversationResults,
+   isSearching,
+   searchProgress,
+@@ -207,14 +214,25 @@ export default function SidebarContent({
+         onSearchFilterChange={onSearchFilterChange}
+         onClearSearchFilter={onClearSearchFilter}
+         searchMode={searchMode}
+-        onSearchModeChange={onSearchModeChange}
+         onRefresh={onRefresh}
+         isRefreshing={isRefreshing}
+         onCreateProject={onCreateProject}
+         onCollapseSidebar={onCollapseSidebar}
++        sidebarTab={sidebarTab}
++        onSidebarTabChange={onSidebarTabChange}
++        pluginChips={pluginChips}
+         t={t}
+       />
+ 
++      {sidebarTab.kind === 'plugin' ? (
++        <div className="min-h-0 flex-1">
++          <SidebarPluginSurface
++            pluginName={sidebarTab.name}
++            selectedProject={projectListProps.selectedProject}
++            selectedSession={projectListProps.selectedSession}
++          />
++        </div>
++      ) : (
+       <ScrollArea className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">
+         {showConversationSearch ? (
+           isSearching && !conversationResults ? (
+@@ -689,6 +707,7 @@ export default function SidebarContent({
+           <SidebarProjectList {...projectListProps} />
+         )}
+       </ScrollArea>
++      )}
+ 
+       {!isRenamingOnMobile && (
+         <SidebarFooter
+diff --git a/src/components/sidebar/view/subcomponents/SidebarHeader.tsx b/src/components/sidebar/view/subcomponents/SidebarHeader.tsx
+index 2d9c122..bc24fce 100644
+--- a/src/components/sidebar/view/subcomponents/SidebarHeader.tsx
++++ b/src/components/sidebar/view/subcomponents/SidebarHeader.tsx
+@@ -1,3 +1,4 @@
++import { Fragment, type ReactNode } from 'react';
+ import { Activity, Archive, Folder, FolderPlus, MessageSquare, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
+ import type { TFunction } from 'i18next';
+ 
+@@ -5,7 +6,10 @@ import { Button, Input, Tooltip } from '../../../../shared/view/ui';
+ import { CLOUDCLI_WORDMARK_FONT_FAMILY } from '../../../../shared/constants';
+ import { IS_PLATFORM } from '../../../../shared/utils';
+ import { cn } from '../../../../lib/utils';
+-import type { SidebarSearchMode } from '../../types/types';
++import type { SidebarSearchMode, SidebarTab } from '../../types/types';
++import type { SidebarPluginChip } from '../../utils/sidebarTabs';
++import { BUILT_IN_SIDEBAR_ORDER, isSameSidebarTab, sidebarTabKey } from '../../utils/sidebarTabs';
++import PluginIcon from '../../../plugins/view/PluginIcon';
+ 
+ import GitHubStarBadge from './GitHubStarBadge';
+ 
+@@ -24,7 +28,10 @@ type SidebarHeaderProps = {
+   onSearchFilterChange: (value: string) => void;
+   onClearSearchFilter: () => void;
+   searchMode: SidebarSearchMode;
+-  onSearchModeChange: (mode: SidebarSearchMode) => void;
++  /** The section on screen — a built-in mode or a plugin-contributed one. */
++  sidebarTab: SidebarTab;
++  onSidebarTabChange: (tab: SidebarTab) => void;
++  pluginChips: SidebarPluginChip[];
+   onRefresh: () => void;
+   isRefreshing: boolean;
+   onCreateProject: () => void;
+@@ -44,14 +51,21 @@ export default function SidebarHeader({
+   onSearchFilterChange,
+   onClearSearchFilter,
+   searchMode,
+-  onSearchModeChange,
++  sidebarTab,
++  onSidebarTabChange,
++  pluginChips,
+   onRefresh,
+   isRefreshing,
+   onCreateProject,
+   onCollapseSidebar,
+   t,
+ }: SidebarHeaderProps) {
+-  const showSearchTools = (projectsCount > 0 || runningSessionsCount > 0 || archivedSessionsCount > 0 || isArchivedSessionsLoading) && !isLoading;
++  const hasSidebarContent = projectsCount > 0 || runningSessionsCount > 0 || archivedSessionsCount > 0 || isArchivedSessionsLoading;
++  const isPluginTab = sidebarTab.kind === 'plugin';
++  // Chips stay visible on a plugin section (it is how you get back), but the
++  // search box belongs to the built-in sections only.
++  const showChips = (hasSidebarContent || pluginChips.length > 0) && !isLoading;
++  const showSearchTools = hasSidebarContent && !isLoading && !isPluginTab;
+   const searchPlaceholder = searchMode === 'conversations'
+     ? t('search.conversationsPlaceholder')
+     : searchMode === 'archived'
+@@ -61,6 +75,138 @@ export default function SidebarHeader({
+         : t('projects.searchPlaceholder');
+   const runningBadgeText = runningSessionsCount > 99 ? '99+' : String(runningSessionsCount);
+ 
++  const chipClassName = (active: boolean, grow: boolean) => cn(
++    'flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all',
++    grow && 'flex-1',
++    active ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground',
++  );
++
++  const isActiveTab = (tab: SidebarTab) => isSameSidebarTab(sidebarTab, tab);
++  const selectBuiltIn = (mode: SidebarSearchMode) => onSidebarTabChange({ kind: 'builtin', mode });
++
++  /**
++   * The section switcher. Built-in chips and plugin chips are one ordered list,
++   * so a plugin declaring `order: 50` renders left of Projects (100).
++   */
++  const ChipRow = ({ showRunningLabel }: { showRunningLabel: boolean }) => {
++    const chips: { key: string; order: number; node: ReactNode }[] = [];
++
++    if (hasSidebarContent) {
++      chips.push({
++        key: 'projects',
++        order: BUILT_IN_SIDEBAR_ORDER.projects,
++        node: (
++          <button
++            onClick={() => selectBuiltIn('projects')}
++            aria-pressed={isActiveTab({ kind: 'builtin', mode: 'projects' })}
++            className={chipClassName(isActiveTab({ kind: 'builtin', mode: 'projects' }), true)}
++          >
++            <Folder className="h-3 w-3" />
++            {t('search.modeProjects')}
++          </button>
++        ),
++      });
++
++      chips.push({
++        key: 'conversations',
++        order: BUILT_IN_SIDEBAR_ORDER.conversations,
++        node: (
++          <button
++            onClick={() => selectBuiltIn('conversations')}
++            aria-pressed={isActiveTab({ kind: 'builtin', mode: 'conversations' })}
++            className={chipClassName(isActiveTab({ kind: 'builtin', mode: 'conversations' }), true)}
++          >
++            <MessageSquare className="h-3 w-3" />
++            {t('search.modeConversations')}
++          </button>
++        ),
++      });
++
++      chips.push({
++        key: 'running',
++        order: BUILT_IN_SIDEBAR_ORDER.running,
++        node: (
++          <Tooltip content={t('search.runningTooltip', 'Running sessions')} position="top">
++            <button
++              onClick={() => selectBuiltIn('running')}
++              aria-pressed={isActiveTab({ kind: 'builtin', mode: 'running' })}
++              aria-label={t('search.runningTooltip', 'Running sessions')}
++              title={t('search.runningTooltip', 'Running sessions')}
++              className={cn(
++                chipClassName(isActiveTab({ kind: 'builtin', mode: 'running' }), false),
++                isActiveTab({ kind: 'builtin', mode: 'running' }) && 'ring-1 ring-emerald-500/15',
++              )}
++            >
++              <span className="relative flex h-3 w-3 items-center justify-center">
++                <Activity className={cn('h-3 w-3', runningSessionsCount > 0 && 'text-emerald-500')} />
++                {runningSessionsCount > 0 && (
++                  <span className="absolute -right-2.5 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[8px] font-semibold leading-none text-white shadow-sm ring-1 ring-background">
++                    {runningBadgeText}
++                  </span>
++                )}
++              </span>
++              {showRunningLabel && <span className="sr-only">{t('search.modeRunning', 'Running')}</span>}
++            </button>
++          </Tooltip>
++        ),
++      });
++
++      chips.push({
++        key: 'archived',
++        order: BUILT_IN_SIDEBAR_ORDER.archived,
++        node: (
++          <Tooltip content={t('search.archiveOnlyTooltip', 'Archive only')} position="top">
++            <button
++              onClick={() => selectBuiltIn('archived')}
++              aria-pressed={isActiveTab({ kind: 'builtin', mode: 'archived' })}
++              aria-label={t('search.archiveOnlyTooltip', 'Archive only')}
++              title={t('search.archiveOnlyTooltip', 'Archive only')}
++              className={cn(
++                'flex items-center justify-center rounded-md px-2.5 py-1.5 text-xs font-normal transition-all',
++                isActiveTab({ kind: 'builtin', mode: 'archived' })
++                  ? 'bg-background shadow-sm text-foreground'
++                  : 'text-muted-foreground hover:text-foreground',
++              )}
++            >
++              <Archive className="h-3 w-3" />
++            </button>
++          </Tooltip>
++        ),
++      });
++    }
++
++    for (const chip of pluginChips) {
++      const tab: SidebarTab = { kind: 'plugin', name: chip.name };
++      chips.push({
++        key: sidebarTabKey(tab),
++        order: chip.order,
++        node: (
++          <button
++            onClick={() => onSidebarTabChange(tab)}
++            aria-pressed={isActiveTab(tab)}
++            title={chip.label}
++            className={chipClassName(isActiveTab(tab), true)}
++          >
++            <PluginIcon
++              pluginName={chip.name}
++              iconFile={chip.icon}
++              className="flex h-3 w-3 items-center justify-center [&>svg]:h-3 [&>svg]:w-3"
++            />
++            <span className="truncate">{chip.label}</span>
++          </button>
++        ),
++      });
++    }
++
++    chips.sort((a, b) => a.order - b.order);
++
++    return (
++      <div className="flex rounded-lg bg-muted/50 p-0.5">
++        {chips.map((chip) => <Fragment key={chip.key}>{chip.node}</Fragment>)}
++      </div>
++    );
++  };
++
+   const LogoBlock = () => (
+     <div className="flex min-w-0 items-center gap-2.5">
+       <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-primary/90 shadow-sm">
+@@ -135,77 +281,11 @@ export default function SidebarHeader({
+ 
+         <GitHubStarBadge />
+ 
+-        {/* Search bar */}
+-        {showSearchTools && (
++        {/* Section switcher and search bar */}
++        {showChips && (
+           <div className="mt-2.5 space-y-2">
+-            {/* Search mode toggle */}
+-            <div className="flex rounded-lg bg-muted/50 p-0.5">
+-              <button
+-                onClick={() => onSearchModeChange('projects')}
+-                aria-pressed={searchMode === 'projects'}
+-                className={cn(
+-                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
+-                  searchMode === 'projects'
+-                    ? "bg-background shadow-sm text-foreground"
+-                    : "text-muted-foreground hover:text-foreground"
+-                )}
+-              >
+-                <Folder className="h-3 w-3" />
+-                {t('search.modeProjects')}
+-              </button>
+-              <button
+-                onClick={() => onSearchModeChange('conversations')}
+-                aria-pressed={searchMode === 'conversations'}
+-                className={cn(
+-                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
+-                  searchMode === 'conversations'
+-                    ? "bg-background shadow-sm text-foreground"
+-                    : "text-muted-foreground hover:text-foreground"
+-                )}
+-              >
+-                <MessageSquare className="h-3 w-3" />
+-                {t('search.modeConversations')}
+-              </button>
+-              <Tooltip content={t('search.runningTooltip', 'Running sessions')} position="top">
+-                <button
+-                  onClick={() => onSearchModeChange('running')}
+-                  aria-pressed={searchMode === 'running'}
+-                  aria-label={t('search.runningTooltip', 'Running sessions')}
+-                  title={t('search.runningTooltip', 'Running sessions')}
+-                  className={cn(
+-                    "flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
+-                    searchMode === 'running'
+-                      ? "bg-background shadow-sm text-foreground ring-1 ring-emerald-500/15"
+-                      : "text-muted-foreground hover:text-foreground"
+-                  )}
+-                >
+-                  <span className="relative flex h-3 w-3 items-center justify-center">
+-                    <Activity className={cn("h-3 w-3", runningSessionsCount > 0 && "text-emerald-500")} />
+-                    {runningSessionsCount > 0 && (
+-                      <span className="absolute -right-2.5 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[8px] font-semibold leading-none text-white shadow-sm ring-1 ring-background">
+-                        {runningBadgeText}
+-                      </span>
+-                    )}
+-                  </span>
+-                </button>
+-              </Tooltip>
+-              <Tooltip content={t('search.archiveOnlyTooltip', 'Archive only')} position="top">
+-                <button
+-                  onClick={() => onSearchModeChange('archived')}
+-                  aria-pressed={searchMode === 'archived'}
+-                  aria-label={t('search.archiveOnlyTooltip', 'Archive only')}
+-                  title={t('search.archiveOnlyTooltip', 'Archive only')}
+-                  className={cn(
+-                    "flex items-center justify-center rounded-md px-2.5 py-1.5 text-xs font-normal transition-all",
+-                    searchMode === 'archived'
+-                      ? "bg-background shadow-sm text-foreground"
+-                      : "text-muted-foreground hover:text-foreground"
+-                  )}
+-                >
+-                  <Archive className="h-3 w-3" />
+-                </button>
+-              </Tooltip>
+-            </div>
++            <ChipRow showRunningLabel={false} />
++            {showSearchTools && (
+             <div className="relative">
+               <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
+               <Input
+@@ -234,6 +314,7 @@ export default function SidebarHeader({
+                 </kbd>
+               )}
+             </div>
++            )}
+           </div>
+         )}
+       </div>
+@@ -276,96 +357,31 @@ export default function SidebarHeader({
+           </div>
+         </div>
+ 
+-        {/* Mobile search */}
+-        {showSearchTools && (
++        {/* Mobile section switcher and search */}
++        {showChips && (
+           <div className="mt-2.5 space-y-2">
+-            <div className="flex rounded-lg bg-muted/50 p-0.5">
+-              <button
+-                onClick={() => onSearchModeChange('projects')}
+-                aria-pressed={searchMode === 'projects'}
+-                className={cn(
+-                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
+-                  searchMode === 'projects'
+-                    ? "bg-background shadow-sm text-foreground"
+-                    : "text-muted-foreground hover:text-foreground"
++            <ChipRow showRunningLabel />
++            {showSearchTools && (
++              <div className="relative">
++                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/50" />
++                <Input
++                  type="text"
++                  placeholder={searchPlaceholder}
++                  value={searchFilter}
++                  onChange={(event) => onSearchFilterChange(event.target.value)}
++                  className="nav-search-input h-10 rounded-xl border-0 pl-10 pr-9 text-sm transition-all duration-200 placeholder:text-muted-foreground/40 focus-visible:ring-0 focus-visible:ring-offset-0"
++                />
++                {searchFilter && (
++                  <button
++                    onClick={onClearSearchFilter}
++                    aria-label={t('tooltips.clearSearch')}
++                    className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 hover:bg-accent"
++                  >
++                    <X className="h-3.5 w-3.5 text-muted-foreground" />
++                  </button>
+                 )}
+-              >
+-                <Folder className="h-3 w-3" />
+-                {t('search.modeProjects')}
+-              </button>
+-              <button
+-                onClick={() => onSearchModeChange('conversations')}
+-                aria-pressed={searchMode === 'conversations'}
+-                className={cn(
+-                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
+-                  searchMode === 'conversations'
+-                    ? "bg-background shadow-sm text-foreground"
+-                    : "text-muted-foreground hover:text-foreground"
+-                )}
+-              >
+-                <MessageSquare className="h-3 w-3" />
+-                {t('search.modeConversations')}
+-              </button>
+-              <Tooltip content={t('search.runningTooltip', 'Running sessions')} position="top">
+-                <button
+-                  onClick={() => onSearchModeChange('running')}
+-                  aria-pressed={searchMode === 'running'}
+-                  aria-label={t('search.runningTooltip', 'Running sessions')}
+-                  title={t('search.runningTooltip', 'Running sessions')}
+-                  className={cn(
+-                    "flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
+-                    searchMode === 'running'
+-                      ? "bg-background shadow-sm text-foreground ring-1 ring-emerald-500/15"
+-                      : "text-muted-foreground hover:text-foreground"
+-                  )}
+-                >
+-                  <span className="relative flex h-3 w-3 items-center justify-center">
+-                    <Activity className={cn("h-3 w-3", runningSessionsCount > 0 && "text-emerald-500")} />
+-                    {runningSessionsCount > 0 && (
+-                      <span className="absolute -right-2.5 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[8px] font-semibold leading-none text-white shadow-sm ring-1 ring-background">
+-                        {runningBadgeText}
+-                      </span>
+-                    )}
+-                  </span>
+-                  <span className="sr-only">{t('search.modeRunning', 'Running')}</span>
+-                </button>
+-              </Tooltip>
+-              <Tooltip content={t('search.archiveOnlyTooltip', 'Archive only')} position="top">
+-                <button
+-                  onClick={() => onSearchModeChange('archived')}
+-                  aria-pressed={searchMode === 'archived'}
+-                  aria-label={t('search.archiveOnlyTooltip', 'Archive only')}
+-                  title={t('search.archiveOnlyTooltip', 'Archive only')}
+-                  className={cn(
+-                    "flex items-center justify-center rounded-md px-2.5 py-1.5 text-xs font-normal transition-all",
+-                    searchMode === 'archived'
+-                      ? "bg-background shadow-sm text-foreground"
+-                      : "text-muted-foreground hover:text-foreground"
+-                  )}
+-                >
+-                  <Archive className="h-3 w-3" />
+-                </button>
+-              </Tooltip>
+-            </div>
+-            <div className="relative">
+-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/50" />
+-              <Input
+-                type="text"
+-                placeholder={searchPlaceholder}
+-                value={searchFilter}
+-                onChange={(event) => onSearchFilterChange(event.target.value)}
+-                className="nav-search-input h-10 rounded-xl border-0 pl-10 pr-9 text-sm transition-all duration-200 placeholder:text-muted-foreground/40 focus-visible:ring-0 focus-visible:ring-offset-0"
+-              />
+-              {searchFilter && (
+-                <button
+-                  onClick={onClearSearchFilter}
+-                  aria-label={t('tooltips.clearSearch')}
+-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 hover:bg-accent"
+-                >
+-                  <X className="h-3.5 w-3.5 text-muted-foreground" />
+-                </button>
+-              )}
+-            </div>
++              </div>
++            )}
+           </div>
+         )}
+       </div>
+diff --git a/src/components/sidebar/view/subcomponents/SidebarPluginSurface.tsx b/src/components/sidebar/view/subcomponents/SidebarPluginSurface.tsx
+new file mode 100644
+index 0000000..6f1b509
+--- /dev/null
++++ b/src/components/sidebar/view/subcomponents/SidebarPluginSurface.tsx
+@@ -0,0 +1,142 @@
++import { useEffect, useRef } from 'react';
++
++import { useTheme } from '../../../../contexts/ThemeContext';
++import { usePlugins } from '../../../../contexts/PluginsContext';
++import { authenticatedFetch } from '../../../../utils/api';
++import type { Project, ProjectSession } from '../../../../types/app';
++
++type SidebarPluginSurfaceProps = {
++  pluginName: string;
++  selectedProject: Project | null;
++  selectedSession: ProjectSession | null;
++};
++
++type PluginContext = {
++  theme: 'dark' | 'light';
++  // The plugin contract calls the project identifier `name`; it carries the DB
++  // projectId, exactly as the main-area surface does.
++  project: { name: string; path: string } | null;
++  session: { id: string; title: string } | null;
++};
++
++function buildContext(
++  isDarkMode: boolean,
++  selectedProject: Project | null,
++  selectedSession: ProjectSession | null,
++): PluginContext {
++  return {
++    theme: isDarkMode ? 'dark' : 'light',
++    project: selectedProject
++      ? { name: selectedProject.projectId, path: selectedProject.fullPath || selectedProject.path || '' }
++      : null,
++    session: selectedSession
++      ? { id: selectedSession.id, title: selectedSession.title || selectedSession.name || selectedSession.id }
++      : null,
++  };
++}
++
++/**
++ * Mounts a plugin module into the sidebar, mirroring the main-area surface.
++ *
++ * The only difference the plugin sees is `api.surface === 'sidebar'`, which lets
++ * it render at sidebar density; everything else — the Blob-URL import, the
++ * context and the RPC channel — is identical.
++ */
++export default function SidebarPluginSurface({
++  pluginName,
++  selectedProject,
++  selectedSession,
++}: SidebarPluginSurfaceProps) {
++  const containerRef = useRef<HTMLDivElement>(null);
++  const { isDarkMode } = useTheme();
++  const { plugins } = usePlugins();
++
++  const contextRef = useRef<PluginContext>(buildContext(isDarkMode, selectedProject, selectedSession));
++  const contextCallbacksRef = useRef<Set<(context: PluginContext) => void>>(new Set());
++  const moduleRef = useRef<{ unmount?: (element: HTMLElement) => void } | null>(null);
++
++  const plugin = plugins.find((candidate) => candidate.name === pluginName);
++
++  useEffect(() => {
++    const context = buildContext(isDarkMode, selectedProject, selectedSession);
++    contextRef.current = context;
++
++    for (const callback of contextCallbacksRef.current) {
++      try { callback(context); } catch { /* plugin error — ignore */ }
++    }
++  }, [isDarkMode, selectedProject, selectedSession]);
++
++  useEffect(() => {
++    if (!containerRef.current || !plugin?.enabled) return;
++
++    let active = true;
++    const container = containerRef.current;
++    const entryFile = plugin?.entry ?? 'index.js';
++    const contextCallbacks = contextCallbacksRef.current;
++
++    (async () => {
++      try {
++        // Same fetch-then-Blob-import dance as the tab surface: the asset route
++        // requires auth, so the browser must never request it directly.
++        const assetUrl = `/api/plugins/${encodeURIComponent(pluginName)}/assets/${encodeURIComponent(entryFile)}`;
++        const response = await authenticatedFetch(assetUrl);
++        if (!response.ok) throw new Error(`Failed to fetch plugin (HTTP ${response.status})`);
++
++        const source = await response.text();
++        const blobUrl = URL.createObjectURL(new Blob([source], { type: 'application/javascript' }));
++        const module = await import(/* @vite-ignore */ blobUrl).finally(() => URL.revokeObjectURL(blobUrl));
++        if (!active || !containerRef.current) return;
++
++        moduleRef.current = module;
++
++        const api = {
++          get context(): PluginContext { return contextRef.current; },
++
++          onContextChange(callback: (context: PluginContext) => void): () => void {
++            contextCallbacks.add(callback);
++            return () => contextCallbacks.delete(callback);
++          },
++
++          async rpc(method: string, path: string, body?: unknown): Promise<unknown> {
++            const cleanPath = String(path).replace(/^\//, '');
++            const rpcResponse = await authenticatedFetch(
++              `/api/plugins/${encodeURIComponent(pluginName)}/rpc/${cleanPath}`,
++              {
++                method: method || 'GET',
++                ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
++              },
++            );
++            if (!rpcResponse.ok) throw new Error(`RPC error ${rpcResponse.status}`);
++            return rpcResponse.json();
++          },
++
++          surface: 'sidebar' as const,
++        };
++
++        await module.mount?.(container, api);
++        if (!active) {
++          try { module.unmount?.(container); } catch { /* ignore */ }
++          moduleRef.current = null;
++        }
++      } catch (error) {
++        if (!active) return;
++        console.error(`[Plugin:${pluginName}] Failed to load in the sidebar:`, error);
++        if (containerRef.current) {
++          const message = document.createElement('div');
++          message.className = 'p-3 text-xs text-destructive';
++          message.textContent = `Plugin failed to load: ${String(error)}`;
++          containerRef.current.replaceChildren(message);
++        }
++      }
++    })();
++
++    return () => {
++      active = false;
++      try { moduleRef.current?.unmount?.(container); } catch { /* ignore */ }
++      contextCallbacks.clear();
++      moduleRef.current = null;
++    };
++  }, [pluginName, plugin?.entry, plugin?.enabled]);
++
++  return <div ref={containerRef} className="h-full w-full min-h-0 overflow-auto" />;
++}
+diff --git a/src/contexts/PluginsContext.tsx b/src/contexts/PluginsContext.tsx
+index ccf404e..6aec182 100644
+--- a/src/contexts/PluginsContext.tsx
++++ b/src/contexts/PluginsContext.tsx
+@@ -14,6 +14,13 @@ export type Plugin = {
+   entry: string;
+   server: string | null;
+   permissions: string[];
++  /** Present when the manifest asked for a sidebar section; normalised by the server. */
++  sidebar: {
++    label: string;
++    icon: string;
++    order: number;
++    replacesTab: boolean;
++  } | null;
+   enabled: boolean;
+   serverRunning: boolean;
+   dirName: string;
+-- 
+2.55.0
+

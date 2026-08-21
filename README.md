@@ -60,6 +60,15 @@ any order, and is proposed upstream separately — see
 [`patches/README.md`](patches/README.md) and
 [`docs/host-integration.md`](docs/host-integration.md).
 
+| Patch | Upstream PR | Effect here |
+|---|---|---|
+| `0001-feat-resizable-sidebar` | PR-1 | The sidebar can be dragged wider — useful once the task tree lives in it |
+| `0002-feat-plugin-host-api` | PR-2 | Unlocks the project drop-down, session titles and navigation |
+| `0003-feat-plugin-sidebar-surface` | PR-3 | Puts `Tasks` in the sidebar, left of `Projects` |
+
+The write-ups sent upstream are in [`docs/upstream-pr-2.md`](docs/upstream-pr-2.md)
+and [`docs/upstream-pr-3.md`](docs/upstream-pr-3.md).
+
 ## Development
 
 ```bash

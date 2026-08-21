@@ -1,7 +1,7 @@
 {
   "name": "taskwork",
   "displayName": "Task Work",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Organizes LLM sessions into a task tree with exclusive project locking.",
   "author": "bvn13",
   "icon": "icon.svg",
@@ -9,5 +9,12 @@
   "slot": "tab",
   "entry": "build/client/index.js",
   "server": "build/server/index.js",
-  "permissions": []
+  "permissions": [],
+
+  "sidebar": {
+    "label": "Tasks",
+    "icon": "icon.svg",
+    "order": 50,
+    "replacesTab": true
+  }
 }
