@@ -66,8 +66,9 @@ any order, and is proposed upstream separately — see
 | `0002-feat-plugin-host-api` | PR-2 | Unlocks the project drop-down, session titles and navigation |
 | `0003-feat-plugin-sidebar-surface` | PR-3 | Puts `Tasks` in the sidebar, left of `Projects` |
 
-The write-ups sent upstream are in [`docs/upstream-pr-2.md`](docs/upstream-pr-2.md)
-and [`docs/upstream-pr-3.md`](docs/upstream-pr-3.md).
+The write-ups sent upstream are in [`docs/upstream-pr-1.md`](docs/upstream-pr-1.md),
+[`docs/upstream-pr-2.md`](docs/upstream-pr-2.md) and
+[`docs/upstream-pr-3.md`](docs/upstream-pr-3.md).
 
 ## Development
 
