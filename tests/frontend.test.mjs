@@ -394,11 +394,14 @@ describe('taskwork frontend', () => {
 
     const pencil = container.querySelector('[aria-label="Rename task Refactor billing"]');
     assert.ok(pencil, 'a hover-state pencil sits on the task row');
-    // It is a sibling of the trash button, in the host's order: pencil, then trash.
-    const actions = pencil.parentNode.childNodes.filter((node) => node.classList.contains('tw-icon'));
+    // Row layout, left to right: title, pencil, trash, age badge, chevron.
     assert.deepEqual(
-      actions.map((node) => node.getAttribute('aria-label')),
-      ['Rename task Refactor billing', 'Delete task Refactor billing'],
+      pencil.parentNode.childNodes.map((node) => node.className),
+      ['tw-node-icon', 'tw-node-text', 'tw-icon', 'tw-icon tw-icon-danger', 'tw-age', 'tw-chevron'],
+    );
+    assert.equal(
+      pencil.parentNode.childNodes[3].getAttribute('aria-label'),
+      'Delete task Refactor billing',
     );
 
     pencil.click();

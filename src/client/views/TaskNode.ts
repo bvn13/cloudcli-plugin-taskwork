@@ -137,11 +137,8 @@ export function createTaskNode(context: TreeContext, task: Task, now: Date): HTM
     });
     row.appendChild(text);
 
-    const age = el('span', { className: 'tw-age', text: formatCompactAge(task.createdAt, now) });
-    age.setAttribute(AGE_ATTR, task.createdAt);
-    row.appendChild(age);
-
-    // Pencil then trash, in the host's own order for a project row.
+    // Pencil, trash, then the age badge: the two buttons fade in on hover, and
+    // reserving their width here keeps the badge from shifting as they appear.
     const rename = iconButton('tw-icon', `Rename task ${task.title}`, icon(ICON_PENCIL));
     rename.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -155,6 +152,10 @@ export function createTaskNode(context: TreeContext, task: Task, now: Date): HTM
       context.callbacks.requestDelete({ kind: 'task', taskId: task.id });
     });
     row.appendChild(remove);
+
+    const age = el('span', { className: 'tw-age', text: formatCompactAge(task.createdAt, now) });
+    age.setAttribute(AGE_ATTR, task.createdAt);
+    row.appendChild(age);
 
     row.appendChild(el('span', {
       className: 'tw-chevron',
