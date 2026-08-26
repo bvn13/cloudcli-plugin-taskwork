@@ -9,6 +9,11 @@ refuses to run otherwise.
 
 ## [Unreleased]
 
+### Added
+- **A pencil button renames a task.** It appears on hover next to the delete
+  icon, in the same place and order as on the host's own project rows; the
+  double-click and `F2` routes are unchanged.
+
 ### Changed
 - `patches/0002-feat-plugin-host-api.patch` regenerated: it now carries the
   review fix from upstream PR #1191 — the host api ref is assigned in an effect

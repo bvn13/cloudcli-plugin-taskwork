@@ -56,6 +56,11 @@ function fakeApi({ tasks = [], locked = [], project = null, host, surface } = {}
         tasks = [task, ...tasks];
         return { task };
       }
+      if (method === 'PATCH' && /^\/tasks\/[^/]+$/.test(endpoint)) {
+        const taskId = endpoint.split('/').pop();
+        tasks = tasks.map((t) => (t.id === taskId ? { ...t, title: body.title } : t));
+        return { task: tasks.find((t) => t.id === taskId) };
+      }
       if (method === 'PATCH' && /\/attachments\//.test(endpoint)) {
         const projectId = endpoint.split('/').pop();
         const task = tasks[0];
@@ -375,6 +380,85 @@ describe('taskwork frontend', () => {
     fire(draftInput(), 'keydown', { key: 'Enter' });
     await settle();
     assert.equal(api.calls.filter((c) => c.method === 'POST' && c.path === '/tasks').length, 1);
+
+    unmount(container);
+  });
+
+  it('the pencil opens the rename editor without expanding the task', async () => {
+    const container = dom.document.createElement('div');
+    dom.document.body.appendChild(container);
+    const api = fakeApi({ tasks: [sample()] });
+
+    mount(container, api);
+    await settle();
+
+    const pencil = container.querySelector('[aria-label="Rename task Refactor billing"]');
+    assert.ok(pencil, 'a hover-state pencil sits on the task row');
+    // It is a sibling of the trash button, in the host's order: pencil, then trash.
+    const actions = pencil.parentNode.childNodes.filter((node) => node.classList.contains('tw-icon'));
+    assert.deepEqual(
+      actions.map((node) => node.getAttribute('aria-label')),
+      ['Rename task Refactor billing', 'Delete task Refactor billing'],
+    );
+
+    pencil.click();
+    await settle();
+
+    const input = container.querySelector('[placeholder="Task name"]');
+    assert.ok(input, 'the title turned into an input');
+    assert.equal(input.value, 'Refactor billing', 'the editor starts from the current title');
+    // The click must not have reached the row, which would have toggled the node.
+    assert.deepEqual(JSON.parse(globalThis.localStorage.getItem('taskwork:expanded') ?? '[]'), []);
+
+    input.value = '  Refactor invoicing  ';
+    fire(input, 'keydown', { key: 'Enter' });
+    await settle();
+
+    const renamed = api.calls.find((c) => c.method === 'PATCH' && c.path === '/tasks/tsk_1');
+    assert.deepEqual(renamed.body, { title: 'Refactor invoicing' }, 'the client trims before sending');
+    assert.match(container.textContent, /Refactor invoicing/);
+    assert.equal(container.querySelector('[placeholder="Task name"]'), null, 'the editor is gone');
+
+    unmount(container);
+  });
+
+  it('renaming: Escape cancels, blur saves, an unchanged title sends nothing', async () => {
+    const container = dom.document.createElement('div');
+    dom.document.body.appendChild(container);
+    const api = fakeApi({ tasks: [sample()] });
+
+    mount(container, api);
+    await settle();
+
+    const openEditor = () => {
+      // The pencil is the first action button on the row; its label follows the title.
+      container.querySelectorAll('.tw-icon')[0].click();
+      dom.flushFrames();
+      return container.querySelector('[placeholder="Task name"]');
+    };
+    const patches = () => api.calls.filter((c) => c.method === 'PATCH').length;
+
+    // Escape drops the edit.
+    const escaped = openEditor();
+    escaped.value = 'Never saved';
+    fire(escaped, 'keydown', { key: 'Escape' });
+    await settle();
+    assert.equal(patches(), 0);
+    assert.match(container.textContent, /Refactor billing/);
+
+    // Blur saves it — the opposite of a draft, which blur discards.
+    const blurred = openEditor();
+    blurred.value = 'Saved on blur';
+    fire(blurred, 'blur');
+    await settle();
+    assert.equal(patches(), 1);
+    assert.match(container.textContent, /Saved on blur/);
+
+    // Committing the same title again is a no-op.
+    const unchanged = openEditor();
+    fire(unchanged, 'keydown', { key: 'Enter' });
+    await settle();
+    assert.equal(patches(), 1, 'an unchanged title costs no request');
 
     unmount(container);
   });

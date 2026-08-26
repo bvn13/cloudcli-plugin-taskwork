@@ -42,7 +42,8 @@ without dead buttons. It never reads the host's `localStorage` or its auth token
 - **`+ Add new task`** — creates a draft row; `Enter` saves, `Escape` or clicking
   away discards it. Tasks are listed newest first with a compact age badge
   (`<1m`, `42m`, `3hr`, `6d`).
-- **Rename** — double-click a task, or press `F2`. Blur saves, `Escape` cancels.
+- **Rename** — the pencil on hover, a double-click on the task, or `F2`. Blur
+  saves, `Escape` cancels.
 - **Delete** — the `×` on hover, or `Delete`; both ask for confirmation.
 - **Attach a project** — expand a task and use `+ Add project` (or
   `+ Attach “<project>”` on a stock host). Projects already attached elsewhere

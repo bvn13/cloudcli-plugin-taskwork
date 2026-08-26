@@ -4,6 +4,7 @@ import {
   ICON_CHEVRON_DOWN,
   ICON_CHEVRON_RIGHT,
   ICON_LIST,
+  ICON_PENCIL,
   ICON_TRASH,
   el,
   focusSoon,
@@ -139,6 +140,14 @@ export function createTaskNode(context: TreeContext, task: Task, now: Date): HTM
     const age = el('span', { className: 'tw-age', text: formatCompactAge(task.createdAt, now) });
     age.setAttribute(AGE_ATTR, task.createdAt);
     row.appendChild(age);
+
+    // Pencil then trash, in the host's own order for a project row.
+    const rename = iconButton('tw-icon', `Rename task ${task.title}`, icon(ICON_PENCIL));
+    rename.addEventListener('click', (event) => {
+      event.stopPropagation();
+      context.callbacks.startRename(task.id);
+    });
+    row.appendChild(rename);
 
     const remove = iconButton('tw-icon tw-icon-danger', `Delete task ${task.title}`, icon(ICON_TRASH));
     remove.addEventListener('click', (event) => {
