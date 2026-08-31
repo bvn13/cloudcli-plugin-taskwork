@@ -19,6 +19,8 @@ export interface ViewState {
   draft: boolean;
   draftBusy: boolean;
   draftError: string | null;
+  /** What has been typed into the draft so far — it survives re-renders (§9.3). */
+  draftTitle: string;
   editingTaskId: string | null;
   confirm: ConfirmTarget | null;
   pickerTaskId: string | null;
@@ -42,6 +44,7 @@ export interface AttachmentView {
 export interface TreeCallbacks {
   startDraft(): void;
   cancelDraft(): void;
+  setDraftTitle(title: string): void;
   commitDraft(title: string): void;
   toggle(taskId: string): void;
   startRename(taskId: string): void;
@@ -150,7 +153,14 @@ export function renderTree(root: HTMLElement, context: TreeContext): void {
     attrs: { role: 'tree', 'aria-label': 'Tasks' },
   });
 
-  if (context.view.draft) tree.appendChild(createDraftNode(context));
+  if (context.view.draft) {
+    // A draft outlives a re-render now, so it may only grab focus when it is new,
+    // when it already had it, or when the disabled `busy` input has just dropped
+    // it — never pull focus away from wherever the user moved it.
+    const previous = root.querySelector('[data-draft-input]') as HTMLInputElement | null;
+    const autoFocus = previous === null || previous.disabled || document.activeElement === previous;
+    tree.appendChild(createDraftNode(context, autoFocus));
+  }
 
   if (context.state.status === 'loading' && context.state.tasks.length === 0) {
     tree.appendChild(el('div', { className: 'tw-hint', text: 'Loading tasks…' }));

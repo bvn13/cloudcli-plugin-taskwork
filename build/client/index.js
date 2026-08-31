@@ -700,13 +700,19 @@ const AGE_ATTR = 'data-created-at';
  * Inline editor shared by the draft node and by rename (§9.3, §9.4).
  *
  * `Enter` commits and `Escape` cancels; the difference between the two is what
- * `blur` means — a draft is dropped, a rename is saved. Committing moves focus,
- * which fires `blur`, so a guard flag keeps that from running the other branch.
+ * `blur` means — a rename is saved, a draft simply stays put (no `onBlur`).
+ * Committing moves focus, which fires `blur`, so a guard flag keeps that from
+ * running the other branch.
  */
 function createInlineInput(options) {
     const input = el('input', {
         className: 'tw-node-input',
-        attrs: { type: 'text', placeholder: options.placeholder, 'aria-label': options.placeholder },
+        attrs: {
+            type: 'text',
+            placeholder: options.placeholder,
+            'aria-label': options.placeholder,
+            ...options.attrs,
+        },
     });
     input.value = options.value;
     input.disabled = options.busy;
@@ -729,8 +735,13 @@ function createInlineInput(options) {
             settle(options.onCancel);
         }
     });
-    input.addEventListener('blur', () => settle(() => options.onBlur(input.value)));
-    if (!options.busy)
+    const onBlur = options.onBlur;
+    if (onBlur)
+        input.addEventListener('blur', () => settle(() => onBlur(input.value)));
+    const onInput = options.onInput;
+    if (onInput)
+        input.addEventListener('input', () => onInput(input.value));
+    if (!options.busy && options.autoFocus !== false)
         focusSoon(input);
     return input;
 }
@@ -741,16 +752,18 @@ function attachmentSummary(task) {
         return 'No projects';
     return count === 1 ? '1 project' : `${count} projects`;
 }
-/** The unsaved task row: it lives directly under the `+` button until Enter or blur. */
-function createDraftNode(context) {
+/** The unsaved task row: it lives directly under the `+` button until Enter or Escape. */
+function createDraftNode(context, autoFocus) {
     const input = createInlineInput({
-        value: '',
+        value: context.view.draftTitle,
         placeholder: 'Task name',
         busy: context.view.draftBusy,
         onCommit: (value) => context.callbacks.commitDraft(value),
         onCancel: () => context.callbacks.cancelDraft(),
-        // Losing focus with the mouse discards the draft — required behaviour, not a shortcut.
-        onBlur: () => context.callbacks.cancelDraft(),
+        // No `onBlur`: clicking away keeps the draft and whatever was typed in it.
+        onInput: (value) => context.callbacks.setDraftTitle(value),
+        attrs: { 'data-draft-input': '' },
+        autoFocus,
     });
     const row = el('div', {
         className: 'tw-node tw-node-task tw-node-draft',
@@ -1022,8 +1035,14 @@ function renderTree(root, context) {
         className: 'tw-tree',
         attrs: { role: 'tree', 'aria-label': 'Tasks' },
     });
-    if (context.view.draft)
-        tree.appendChild(createDraftNode(context));
+    if (context.view.draft) {
+        // A draft outlives a re-render now, so it may only grab focus when it is new,
+        // when it already had it, or when the disabled `busy` input has just dropped
+        // it — never pull focus away from wherever the user moved it.
+        const previous = root.querySelector('[data-draft-input]');
+        const autoFocus = previous === null || previous.disabled || document.activeElement === previous;
+        tree.appendChild(createDraftNode(context, autoFocus));
+    }
     if (context.state.status === 'loading' && context.state.tasks.length === 0) {
         tree.appendChild(el('div', { className: 'tw-hint', text: 'Loading tasks…' }));
     }
@@ -1147,6 +1166,7 @@ function initialView() {
         draft: false,
         draftBusy: false,
         draftError: null,
+        draftTitle: '',
         editingTaskId: null,
         confirm: null,
         pickerTaskId: null,
@@ -1201,15 +1221,17 @@ function treeContext(instance) {
         describeAttachment: (task, attachment) => describeAttachment(instance, task, attachment),
         callbacks: {
             startDraft: () => {
-                instance.view = { ...instance.view, draft: true, draftError: null, draftBusy: false };
+                instance.view = { ...instance.view, draft: true, draftError: null, draftBusy: false, draftTitle: '' };
                 render(instance);
             },
             cancelDraft: () => {
                 if (!instance.view.draft)
                     return;
-                instance.view = { ...instance.view, draft: false, draftError: null, draftBusy: false };
+                instance.view = { ...instance.view, draft: false, draftError: null, draftBusy: false, draftTitle: '' };
                 render(instance);
             },
+            // Typing does not re-render; the value is kept so a re-render can restore it.
+            setDraftTitle: (title) => { instance.view.draftTitle = title; },
             commitDraft: (title) => { void commitDraft(instance, title); },
             toggle: (taskId) => instance.store.toggleExpanded(taskId),
             startRename: (taskId) => {
@@ -1255,17 +1277,18 @@ function render(instance) {
 async function commitDraft(instance, rawTitle) {
     const title = rawTitle.trim();
     if (title.length === 0) {
-        instance.view = { ...instance.view, draft: false, draftError: null };
+        instance.view = { ...instance.view, draft: false, draftError: null, draftTitle: '' };
         render(instance);
         return;
     }
-    instance.view = { ...instance.view, draftBusy: true, draftError: null };
+    instance.view = { ...instance.view, draftBusy: true, draftError: null, draftTitle: title };
     render(instance);
     const result = await instance.store.createTask(title);
     if (instance.disposed)
         return;
+    // On failure the draft stays with its title, so the user can retry the same text.
     instance.view = result.ok
-        ? { ...instance.view, draft: false, draftBusy: false, draftError: null }
+        ? { ...instance.view, draft: false, draftBusy: false, draftError: null, draftTitle: '' }
         : { ...instance.view, draftBusy: false, draftError: result.message };
     render(instance);
 }

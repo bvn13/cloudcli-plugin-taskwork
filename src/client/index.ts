@@ -42,6 +42,7 @@ function initialView(): ViewState {
     draft: false,
     draftBusy: false,
     draftError: null,
+    draftTitle: '',
     editingTaskId: null,
     confirm: null,
     pickerTaskId: null,
@@ -109,14 +110,16 @@ function treeContext(instance: Instance): TreeContext {
     describeAttachment: (task, attachment) => describeAttachment(instance, task, attachment),
     callbacks: {
       startDraft: () => {
-        instance.view = { ...instance.view, draft: true, draftError: null, draftBusy: false };
+        instance.view = { ...instance.view, draft: true, draftError: null, draftBusy: false, draftTitle: '' };
         render(instance);
       },
       cancelDraft: () => {
         if (!instance.view.draft) return;
-        instance.view = { ...instance.view, draft: false, draftError: null, draftBusy: false };
+        instance.view = { ...instance.view, draft: false, draftError: null, draftBusy: false, draftTitle: '' };
         render(instance);
       },
+      // Typing does not re-render; the value is kept so a re-render can restore it.
+      setDraftTitle: (title) => { instance.view.draftTitle = title; },
       commitDraft: (title) => { void commitDraft(instance, title); },
       toggle: (taskId) => instance.store.toggleExpanded(taskId),
       startRename: (taskId) => {
@@ -162,19 +165,20 @@ function render(instance: Instance): void {
 async function commitDraft(instance: Instance, rawTitle: string): Promise<void> {
   const title = rawTitle.trim();
   if (title.length === 0) {
-    instance.view = { ...instance.view, draft: false, draftError: null };
+    instance.view = { ...instance.view, draft: false, draftError: null, draftTitle: '' };
     render(instance);
     return;
   }
 
-  instance.view = { ...instance.view, draftBusy: true, draftError: null };
+  instance.view = { ...instance.view, draftBusy: true, draftError: null, draftTitle: title };
   render(instance);
 
   const result = await instance.store.createTask(title);
   if (instance.disposed) return;
 
+  // On failure the draft stays with its title, so the user can retry the same text.
   instance.view = result.ok
-    ? { ...instance.view, draft: false, draftBusy: false, draftError: null }
+    ? { ...instance.view, draft: false, draftBusy: false, draftError: null, draftTitle: '' }
     : { ...instance.view, draftBusy: false, draftError: result.message };
   render(instance);
 }

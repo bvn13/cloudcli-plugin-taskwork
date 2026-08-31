@@ -15,6 +15,11 @@ refuses to run otherwise.
   double-click and `F2` routes are unchanged.
 
 ### Changed
+- **A new task's draft row no longer disappears when it loses focus.** Only
+  `Enter` (saves), `Escape`, an empty title or a second `+` closes it; clicking
+  anywhere else keeps the row and the text typed into it. The text now also
+  survives a re-render of the tree — including the one that shows a save error —
+  and the draft never pulls focus back from wherever the user moved it.
 - `patches/0002-feat-plugin-host-api.patch` regenerated: it now carries the
   review fix from upstream PR #1191 — the host api ref is assigned in an effect
   instead of during render, which React's purity rule forbids.

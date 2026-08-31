@@ -19,8 +19,9 @@ export const AGE_ATTR = 'data-created-at';
  * Inline editor shared by the draft node and by rename (§9.3, §9.4).
  *
  * `Enter` commits and `Escape` cancels; the difference between the two is what
- * `blur` means — a draft is dropped, a rename is saved. Committing moves focus,
- * which fires `blur`, so a guard flag keeps that from running the other branch.
+ * `blur` means — a rename is saved, a draft simply stays put (no `onBlur`).
+ * Committing moves focus, which fires `blur`, so a guard flag keeps that from
+ * running the other branch.
  */
 function createInlineInput(options: {
   value: string;
@@ -28,11 +29,19 @@ function createInlineInput(options: {
   busy: boolean;
   onCommit: (value: string) => void;
   onCancel: () => void;
-  onBlur: (value: string) => void;
+  onBlur?: (value: string) => void;
+  onInput?: (value: string) => void;
+  attrs?: Record<string, string>;
+  autoFocus?: boolean;
 }): HTMLInputElement {
   const input = el('input', {
     className: 'tw-node-input',
-    attrs: { type: 'text', placeholder: options.placeholder, 'aria-label': options.placeholder },
+    attrs: {
+      type: 'text',
+      placeholder: options.placeholder,
+      'aria-label': options.placeholder,
+      ...options.attrs,
+    },
   });
   input.value = options.value;
   input.disabled = options.busy;
@@ -56,9 +65,13 @@ function createInlineInput(options: {
     }
   });
 
-  input.addEventListener('blur', () => settle(() => options.onBlur(input.value)));
+  const onBlur = options.onBlur;
+  if (onBlur) input.addEventListener('blur', () => settle(() => onBlur(input.value)));
 
-  if (!options.busy) focusSoon(input);
+  const onInput = options.onInput;
+  if (onInput) input.addEventListener('input', () => onInput(input.value));
+
+  if (!options.busy && options.autoFocus !== false) focusSoon(input);
   return input;
 }
 
@@ -69,16 +82,18 @@ function attachmentSummary(task: Task): string {
   return count === 1 ? '1 project' : `${count} projects`;
 }
 
-/** The unsaved task row: it lives directly under the `+` button until Enter or blur. */
-export function createDraftNode(context: TreeContext): HTMLElement {
+/** The unsaved task row: it lives directly under the `+` button until Enter or Escape. */
+export function createDraftNode(context: TreeContext, autoFocus: boolean): HTMLElement {
   const input = createInlineInput({
-    value: '',
+    value: context.view.draftTitle,
     placeholder: 'Task name',
     busy: context.view.draftBusy,
     onCommit: (value) => context.callbacks.commitDraft(value),
     onCancel: () => context.callbacks.cancelDraft(),
-    // Losing focus with the mouse discards the draft — required behaviour, not a shortcut.
-    onBlur: () => context.callbacks.cancelDraft(),
+    // No `onBlur`: clicking away keeps the draft and whatever was typed in it.
+    onInput: (value) => context.callbacks.setDraftTitle(value),
+    attrs: { 'data-draft-input': '' },
+    autoFocus,
   });
 
   const row = el('div', {

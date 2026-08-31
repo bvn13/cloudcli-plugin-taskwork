@@ -39,9 +39,9 @@ without dead buttons. It never reads the host's `localStorage` or its auth token
 
 ## Using it
 
-- **`+ Add new task`** — creates a draft row; `Enter` saves, `Escape` or clicking
-  away discards it. Tasks are listed newest first with a compact age badge
-  (`<1m`, `42m`, `3hr`, `6d`).
+- **`+ Add new task`** — creates a draft row; `Enter` saves and `Escape` discards
+  it. Clicking away leaves the draft and whatever was typed into it alone. Tasks
+  are listed newest first with a compact age badge (`<1m`, `42m`, `3hr`, `6d`).
 - **Rename** — the pencil on hover, a double-click on the task, or `F2`. Blur
   saves, `Escape` cancels.
 - **Delete** — the `×` on hover, or `Delete`; both ask for confirmation.

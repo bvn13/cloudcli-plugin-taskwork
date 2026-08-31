@@ -340,7 +340,7 @@ describe('taskwork frontend', () => {
     unmount(container);
   });
 
-  it('creating a task: Enter saves, blur discards, empty input cancels', async () => {
+  it('creating a task: Enter saves, blur keeps the draft, empty input cancels', async () => {
     const container = dom.document.createElement('div');
     dom.document.body.appendChild(container);
     const api = fakeApi({ tasks: [] });
@@ -352,14 +352,20 @@ describe('taskwork frontend', () => {
     const addButton = () => container.querySelectorAll('[aria-label="Add new task"]')[0];
     const draftInput = () => container.querySelectorAll('[placeholder="Task name"]')[0] ?? null;
 
-    // Blur drops the draft.
+    // Blur keeps the draft, and Escape is the only way to drop it.
     addButton().click();
     assert.ok(draftInput());
-    draftInput().value = 'Never saved';
+    draftInput().value = 'Typed but not saved';
+    fire(draftInput(), 'input');
     fire(draftInput(), 'blur');
     await settle();
-    assert.equal(draftInput(), null);
+    assert.ok(draftInput(), 'clicking away must not remove the draft');
+    assert.equal(draftInput().value, 'Typed but not saved');
     assert.equal(api.calls.filter((c) => c.method === 'POST').length, 0);
+
+    fire(draftInput(), 'keydown', { key: 'Escape' });
+    await settle();
+    assert.equal(draftInput(), null);
 
     // Enter saves it, and the blur that follows must not undo the save.
     addButton().click();
@@ -373,6 +379,16 @@ describe('taskwork frontend', () => {
     assert.equal(created.body.title, 'Migrate to Vite', 'the client trims before sending');
     assert.match(container.textContent, /Migrate to Vite/);
     assert.equal(draftInput(), null);
+
+    // A re-render triggered elsewhere in the tree keeps the draft and its text.
+    addButton().click();
+    draftInput().value = 'Survives a re-render';
+    fire(draftInput(), 'input');
+    container.querySelector('[data-task-id]').click();
+    await settle();
+    assert.equal(draftInput()?.value, 'Survives a re-render');
+    fire(draftInput(), 'keydown', { key: 'Escape' });
+    await settle();
 
     // Whitespace-only input just cancels.
     addButton().click();
@@ -449,7 +465,7 @@ describe('taskwork frontend', () => {
     assert.equal(patches(), 0);
     assert.match(container.textContent, /Refactor billing/);
 
-    // Blur saves it — the opposite of a draft, which blur discards.
+    // Blur saves it — the opposite of a draft, which blur leaves alone.
     const blurred = openEditor();
     blurred.value = 'Saved on blur';
     fire(blurred, 'blur');
