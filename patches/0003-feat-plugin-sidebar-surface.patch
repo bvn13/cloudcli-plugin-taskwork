@@ -1,4 +1,4 @@
-From 4043bf283d5da6ac0fb3ef41ce3110680cf3f3b3 Mon Sep 17 00:00:00 2001
+From 1b570d5cf820bd971e9c49573b00a93e94eb7f43 Mon Sep 17 00:00:00 2001
 From: bvn13 <from.github@bvn13.me>
 Date: Fri, 21 Aug 2026 21:53:54 +0300
 Subject: [PATCH] feat(plugins): let plugins contribute a section to the
@@ -27,25 +27,29 @@ before.
 ---
  .../plugins/plugin-registry.service.ts        |  55 +++
  .../tests/plugin-registry.sidebar.test.ts     |  64 ++++
- .../subcomponents/MainContentTabSwitcher.tsx  |   5 +-
- .../plugins/view/PluginSettingsTab.tsx        |   3 +-
- .../sidebar/hooks/useSidebarController.ts     |  50 +++
- src/components/sidebar/types/types.ts         |   8 +
- .../sidebar/utils/sidebarTabs.test.ts         |  80 +++++
- src/components/sidebar/utils/sidebarTabs.ts   |  89 +++++
- src/components/sidebar/view/Sidebar.tsx       |  11 +-
- .../view/subcomponents/SidebarContent.tsx     |  27 +-
- .../view/subcomponents/SidebarHeader.tsx      | 340 +++++++++---------
- .../subcomponents/SidebarPluginSurface.tsx    | 142 ++++++++
- src/contexts/PluginsContext.tsx               |   7 +
- 13 files changed, 710 insertions(+), 171 deletions(-)
+ src/modules/plugins/PluginSettingsTab.tsx     |   3 +-
+ src/modules/plugins/index.ts                  |   1 +
+ .../plugins/tests/pluginSurfaces.test.ts      |  31 ++
+ src/modules/plugins/utils/pluginSurfaces.ts   |  27 ++
+ .../project-workspace/WorkspaceTabs.tsx       |   6 +-
+ src/modules/sidebar/Sidebar.tsx               |  12 +-
+ src/modules/sidebar/SidebarContent.tsx        |  27 +-
+ src/modules/sidebar/SidebarHeader.tsx         | 344 +++++++++---------
+ src/modules/sidebar/SidebarPluginSurface.tsx  | 142 ++++++++
+ .../sidebar/hooks/useSidebarController.ts     |  54 ++-
+ src/modules/sidebar/tests/sidebarTabs.test.ts |  61 ++++
+ src/modules/sidebar/utils/sidebarTabs.ts      |  76 ++++
+ src/shared/types.ts                           |  15 +
+ 15 files changed, 743 insertions(+), 175 deletions(-)
  create mode 100644 server/modules/plugins/tests/plugin-registry.sidebar.test.ts
- create mode 100644 src/components/sidebar/utils/sidebarTabs.test.ts
- create mode 100644 src/components/sidebar/utils/sidebarTabs.ts
- create mode 100644 src/components/sidebar/view/subcomponents/SidebarPluginSurface.tsx
+ create mode 100644 src/modules/plugins/tests/pluginSurfaces.test.ts
+ create mode 100644 src/modules/plugins/utils/pluginSurfaces.ts
+ create mode 100644 src/modules/sidebar/SidebarPluginSurface.tsx
+ create mode 100644 src/modules/sidebar/tests/sidebarTabs.test.ts
+ create mode 100644 src/modules/sidebar/utils/sidebarTabs.ts
 
 diff --git a/server/modules/plugins/plugin-registry.service.ts b/server/modules/plugins/plugin-registry.service.ts
-index f581651..594e553 100644
+index f5816516..594e553e 100644
 --- a/server/modules/plugins/plugin-registry.service.ts
 +++ b/server/modules/plugins/plugin-registry.service.ts
 @@ -92,9 +92,63 @@ export function validateManifest(manifest) {
@@ -122,7 +126,7 @@ index f581651..594e553 100644
          repoUrl,
 diff --git a/server/modules/plugins/tests/plugin-registry.sidebar.test.ts b/server/modules/plugins/tests/plugin-registry.sidebar.test.ts
 new file mode 100644
-index 0000000..f63321d
+index 00000000..f63321da
 --- /dev/null
 +++ b/server/modules/plugins/tests/plugin-registry.sidebar.test.ts
 @@ -0,0 +1,64 @@
@@ -190,42 +194,19 @@ index 0000000..f63321d
 +  // No icon anywhere falls back to the generic plugin icon.
 +  assert.equal(normalizeSidebar({}, manifest({ icon: undefined }))?.icon, 'Puzzle');
 +});
-diff --git a/src/components/main-content/view/subcomponents/MainContentTabSwitcher.tsx b/src/components/main-content/view/subcomponents/MainContentTabSwitcher.tsx
-index 4e85a9d..cf5eb7f 100644
---- a/src/components/main-content/view/subcomponents/MainContentTabSwitcher.tsx
-+++ b/src/components/main-content/view/subcomponents/MainContentTabSwitcher.tsx
-@@ -7,6 +7,7 @@ import { Tooltip, PillBar, Pill } from '../../../../shared/view/ui';
- import type { AppTab } from '../../../../types/app';
- import { usePlugins } from '../../../../contexts/PluginsContext';
- import PluginIcon from '../../../plugins/view/PluginIcon';
-+import { pluginsShownAsTabs } from '../../../sidebar/utils/sidebarTabs';
+diff --git a/src/modules/plugins/PluginSettingsTab.tsx b/src/modules/plugins/PluginSettingsTab.tsx
+index 26c42868..51afa791 100644
+--- a/src/modules/plugins/PluginSettingsTab.tsx
++++ b/src/modules/plugins/PluginSettingsTab.tsx
+@@ -21,6 +21,7 @@ import {
+ } from 'lucide-react';
  
- type MainContentTabSwitcherProps = {
-   activeTab: AppTab;
-@@ -68,7 +69,9 @@ export default function MainContentTabSwitcher({
-     ...(shouldShowTasksTab ? [TASKS_TAB] : []),
-   ];
+ import { usePlugins } from '@/modules/plugins/context/PluginsContext';
++import { describePluginSurfaces } from '@/modules/plugins/utils/pluginSurfaces';
+ import type { Plugin } from '@/shared/types';
+ import PluginIcon from '@/modules/plugins/PluginIcon';
  
--  const pluginTabs: PluginTab[] = plugins
-+  // A plugin that took over a sidebar section with `replacesTab` is not shown
-+  // here as well — it lives in one place, not two.
-+  const pluginTabs: PluginTab[] = pluginsShownAsTabs(plugins)
-     .filter((p) => p.enabled)
-     .map((p) => ({
-       kind: 'plugin',
-diff --git a/src/components/plugins/view/PluginSettingsTab.tsx b/src/components/plugins/view/PluginSettingsTab.tsx
-index db197c6..885366a 100644
---- a/src/components/plugins/view/PluginSettingsTab.tsx
-+++ b/src/components/plugins/view/PluginSettingsTab.tsx
-@@ -22,6 +22,7 @@ import {
- 
- import { usePlugins } from '../../../contexts/PluginsContext';
- import type { Plugin } from '../../../contexts/PluginsContext';
-+import { describePluginSurfaces } from '../../sidebar/utils/sidebarTabs';
- 
- import PluginIcon from './PluginIcon';
- 
-@@ -256,7 +257,7 @@ function PluginCard({
+@@ -255,7 +256,7 @@ function PluginCard({
                    v{plugin.version}
                  </span>
                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -234,128 +215,26 @@ index db197c6..885366a 100644
                  </span>
                  <ServerDot running={!!plugin.serverRunning} t={t} />
                </div>
-diff --git a/src/components/sidebar/hooks/useSidebarController.ts b/src/components/sidebar/hooks/useSidebarController.ts
-index c8c294c..60e8ac4 100644
---- a/src/components/sidebar/hooks/useSidebarController.ts
-+++ b/src/components/sidebar/hooks/useSidebarController.ts
-@@ -3,6 +3,7 @@ import type { TFunction } from 'i18next';
- 
- import { api } from '../../../utils/api';
- import { usePaletteOps } from '../../../contexts/PaletteOpsContext';
-+import { usePlugins } from '../../../contexts/PluginsContext';
- import type { Project, ProjectSession, LLMProvider } from '../../../types/app';
- import type { SessionActivityMap } from '../../../hooks/useSessionProtection';
- import type {
-@@ -12,9 +13,11 @@ import type {
-   ProjectSortOrder,
-   RecentConversationListItem,
-   SidebarSearchMode,
-+  SidebarTab,
-   SessionDeleteConfirmation,
-   SessionWithProvider,
- } from '../types/types';
-+import { SIDEBAR_TAB_STORAGE_KEY, parseSidebarTab, pluginSidebarChips, sidebarTabKey } from '../utils/sidebarTabs';
- import {
-   clearLegacyStarredProjectIds,
-   filterProjects,
-@@ -153,6 +156,50 @@ export function useSidebarController({
-   const [sessionDeleteConfirmation, setSessionDeleteConfirmation] = useState<SessionDeleteConfirmation | null>(null);
-   const [showVersionModal, setShowVersionModal] = useState(false);
-   const [searchMode, setSearchMode] = useState<SidebarSearchMode>('projects');
-+  // Which section is on screen. Built-in sections keep driving `searchMode`;
-+  // a plugin section replaces the list below the header.
-+  const [sidebarTab, setSidebarTabState] = useState<SidebarTab>({ kind: 'builtin', mode: 'projects' });
-+  const { plugins } = usePlugins();
-+  const sidebarPluginChips = useMemo(() => pluginSidebarChips(plugins), [plugins]);
-+  const sidebarTabRestoredRef = useRef(false);
-+
-+  const setSidebarTab = useCallback((tab: SidebarTab) => {
-+    setSidebarTabState(tab);
-+    if (tab.kind === 'builtin') setSearchMode(tab.mode);
-+    try {
-+      localStorage.setItem(SIDEBAR_TAB_STORAGE_KEY, sidebarTabKey(tab));
-+    } catch {
-+      // Storage unavailable — the selection just stops being sticky.
-+    }
-+  }, []);
-+
-+  // Restores the persisted section once the plugin list is known, and drops a
-+  // plugin section that has since been disabled or uninstalled.
-+  useEffect(() => {
-+    const pluginNames = sidebarPluginChips.map((chip) => chip.name);
-+
-+    if (sidebarTab.kind === 'plugin' && !pluginNames.includes(sidebarTab.name)) {
-+      setSidebarTabState({ kind: 'builtin', mode: 'projects' });
-+      return;
-+    }
-+
-+    if (sidebarTabRestoredRef.current) return;
-+
-+    let stored: string | null = null;
-+    try {
-+      stored = localStorage.getItem(SIDEBAR_TAB_STORAGE_KEY);
-+    } catch {
-+      stored = null;
-+    }
-+
-+    // A stored plugin section waits for the plugin list to arrive.
-+    if (stored?.startsWith('plugin:') && pluginNames.length === 0) return;
-+
-+    sidebarTabRestoredRef.current = true;
-+    const restored = parseSidebarTab(stored, pluginNames);
-+    setSidebarTabState(restored);
-+    if (restored.kind === 'builtin') setSearchMode(restored.mode);
-+  }, [sidebarPluginChips, sidebarTab]);
-   const [conversationResults, setConversationResults] = useState<ConversationSearchResults | null>(null);
-   const [isSearching, setIsSearching] = useState(false);
-   const [searchProgress, setSearchProgress] = useState<SearchProgress | null>(null);
-@@ -1120,6 +1167,9 @@ export function useSidebarController({
-     setEditingSessionName,
-     searchMode,
-     setSearchMode,
-+    sidebarTab,
-+    setSidebarTab,
-+    sidebarPluginChips,
-     conversationResults,
-     isSearching,
-     searchProgress,
-diff --git a/src/components/sidebar/types/types.ts b/src/components/sidebar/types/types.ts
-index 5c71250..a706764 100644
---- a/src/components/sidebar/types/types.ts
-+++ b/src/components/sidebar/types/types.ts
-@@ -3,6 +3,14 @@ import type { SessionActivityMap } from '../../../hooks/useSessionProtection';
- 
- export type ProjectSortOrder = 'name' | 'date';
- export type SidebarSearchMode = 'projects' | 'conversations' | 'running' | 'archived';
-+
-+/**
-+ * Which section the sidebar is showing: one of the built-in modes, or a section
-+ * contributed by a plugin through its manifest.
-+ */
-+export type SidebarTab =
-+  | { kind: 'builtin'; mode: SidebarSearchMode }
-+  | { kind: 'plugin'; name: string };
- export type ArchivedProjectListItem = Project & { isArchived: true };
- 
- export type SessionWithProvider = ProjectSession & {
-diff --git a/src/components/sidebar/utils/sidebarTabs.test.ts b/src/components/sidebar/utils/sidebarTabs.test.ts
+diff --git a/src/modules/plugins/index.ts b/src/modules/plugins/index.ts
+index bd9c4ea8..e12b85e8 100644
+--- a/src/modules/plugins/index.ts
++++ b/src/modules/plugins/index.ts
+@@ -2,3 +2,4 @@ export { PluginsProvider, usePlugins } from '@/modules/plugins/context/PluginsCo
+ export { default as PluginIcon } from '@/modules/plugins/PluginIcon';
+ export { default as PluginSettingsTab } from '@/modules/plugins/PluginSettingsTab';
+ export { default as PluginTabContent } from '@/modules/plugins/PluginTabContent';
++export { describePluginSurfaces, pluginsShownAsTabs } from '@/modules/plugins/utils/pluginSurfaces';
+diff --git a/src/modules/plugins/tests/pluginSurfaces.test.ts b/src/modules/plugins/tests/pluginSurfaces.test.ts
 new file mode 100644
-index 0000000..810b703
+index 00000000..fe6193ee
 --- /dev/null
-+++ b/src/components/sidebar/utils/sidebarTabs.test.ts
-@@ -0,0 +1,80 @@
++++ b/src/modules/plugins/tests/pluginSurfaces.test.ts
+@@ -0,0 +1,31 @@
 +import assert from 'node:assert/strict';
-+import test from 'node:test';
 +
-+import {
-+  BUILT_IN_SIDEBAR_ORDER,
-+  describePluginSurfaces,
-+  parseSidebarTab,
-+  pluginSidebarChips,
-+  pluginsShownAsTabs,
-+  showsSearchTools,
-+  sidebarTabKey,
-+} from './sidebarTabs';
++import { test } from 'vitest';
++
++import { describePluginSurfaces, pluginsShownAsTabs } from '@/modules/plugins/utils/pluginSurfaces';
 +
 +const plugin = (overrides: Record<string, unknown> = {}) => ({
 +  name: 'demo',
@@ -363,28 +242,7 @@ index 0000000..810b703
 +  enabled: true,
 +  sidebar: null,
 +  ...overrides,
-+}) as Parameters<typeof pluginSidebarChips>[0][number];
-+
-+test('a plugin with a low order sits left of Projects', () => {
-+  const chips = pluginSidebarChips([
-+    plugin({ name: 'early', sidebar: { label: 'Notes', icon: 'i.svg', order: 50, replacesTab: true } }),
-+    plugin({ name: 'late', sidebar: { label: 'Notes', icon: 'i.svg', order: 900, replacesTab: false } }),
-+  ]);
-+
-+  assert.deepEqual(chips.map((chip) => chip.name), ['early', 'late']);
-+  assert.ok(chips[0].order < BUILT_IN_SIDEBAR_ORDER.projects);
-+  assert.ok(chips[1].order > BUILT_IN_SIDEBAR_ORDER.archived);
-+});
-+
-+test('only enabled plugins that declared a sidebar produce a chip', () => {
-+  const chips = pluginSidebarChips([
-+    plugin({ name: 'no-sidebar' }),
-+    plugin({ name: 'disabled', enabled: false, sidebar: { label: 'X', icon: 'i.svg', order: 10, replacesTab: false } }),
-+    plugin({ name: 'shown', sidebar: { label: 'Shown', icon: 'i.svg', order: 10, replacesTab: false } }),
-+  ]);
-+
-+  assert.deepEqual(chips.map((chip) => chip.name), ['shown']);
-+});
++}) as Parameters<typeof pluginsShownAsTabs>[0][number];
 +
 +test('replacesTab removes the plugin from the main-area tabs', () => {
 +  const plugins = [
@@ -396,22 +254,6 @@ index 0000000..810b703
 +  assert.deepEqual(pluginsShownAsTabs(plugins).map((p) => p.name), ['in-tabs', 'plain']);
 +});
 +
-+test('the persisted tab is restored, and a vanished plugin falls back to projects', () => {
-+  assert.deepEqual(parseSidebarTab('plugin:demo', ['demo']), { kind: 'plugin', name: 'demo' });
-+  assert.deepEqual(parseSidebarTab('plugin:gone', ['demo']), { kind: 'builtin', mode: 'projects' });
-+  assert.deepEqual(parseSidebarTab('archived', []), { kind: 'builtin', mode: 'archived' });
-+  assert.deepEqual(parseSidebarTab('nonsense', []), { kind: 'builtin', mode: 'projects' });
-+  assert.deepEqual(parseSidebarTab(null, []), { kind: 'builtin', mode: 'projects' });
-+
-+  assert.equal(sidebarTabKey({ kind: 'plugin', name: 'demo' }), 'plugin:demo');
-+  assert.equal(sidebarTabKey({ kind: 'builtin', mode: 'running' }), 'running');
-+});
-+
-+test('the search box belongs to the built-in sections only', () => {
-+  assert.equal(showsSearchTools({ kind: 'builtin', mode: 'projects' }), true);
-+  assert.equal(showsSearchTools({ kind: 'plugin', name: 'demo' }), false);
-+});
-+
 +test('the settings list names the surfaces a plugin occupies', () => {
 +  const surfaces = (overrides: Record<string, unknown>) => describePluginSurfaces({ ...plugin(overrides), slot: 'tab' });
 +
@@ -419,39 +261,19 @@ index 0000000..810b703
 +  assert.equal(surfaces({ sidebar: { label: 'A', icon: 'i.svg', order: 10, replacesTab: false } }), 'Tab + Sidebar');
 +  assert.equal(surfaces({ sidebar: { label: 'A', icon: 'i.svg', order: 10, replacesTab: true } }), 'Sidebar');
 +});
-+
-+test('a host with no sidebar plugins produces no chips at all', () => {
-+  assert.deepEqual(pluginSidebarChips([]), []);
-+  assert.deepEqual(pluginSidebarChips([plugin(), plugin({ name: 'other' })]), []);
-+});
-diff --git a/src/components/sidebar/utils/sidebarTabs.ts b/src/components/sidebar/utils/sidebarTabs.ts
+diff --git a/src/modules/plugins/utils/pluginSurfaces.ts b/src/modules/plugins/utils/pluginSurfaces.ts
 new file mode 100644
-index 0000000..2af1c0f
+index 00000000..a3871074
 --- /dev/null
-+++ b/src/components/sidebar/utils/sidebarTabs.ts
-@@ -0,0 +1,89 @@
-+import type { SidebarSearchMode, SidebarTab } from '../types/types';
-+
++++ b/src/modules/plugins/utils/pluginSurfaces.ts
+@@ -0,0 +1,27 @@
 +/**
-+ * Where the built-in sections sit in the chip row. Plugins carry their own
-+ * `order`, so a plugin can place itself before `Projects` purely by data.
++ * Which surfaces a plugin occupies, derived from its manifest alone.
++ *
++ * These live with the plugins module rather than with the sidebar because the
++ * sidebar is only one of the surfaces they describe: the main-area tab switcher
++ * and the plugin settings list ask the same questions.
 + */
-+export const BUILT_IN_SIDEBAR_ORDER: Record<SidebarSearchMode, number> = {
-+  projects: 100,
-+  conversations: 200,
-+  running: 300,
-+  archived: 400,
-+};
-+
-+export const SIDEBAR_TAB_STORAGE_KEY = 'sidebar-tab';
-+
-+export type SidebarPluginChip = {
-+  name: string;
-+  label: string;
-+  icon: string;
-+  order: number;
-+  replacesTab: boolean;
-+};
 +
 +type PluginLike = {
 +  name: string;
@@ -460,56 +282,9 @@ index 0000000..2af1c0f
 +  sidebar?: { label: string; icon: string; order: number; replacesTab: boolean } | null;
 +};
 +
-+/** Serialised form used for persistence and for React keys. */
-+export function sidebarTabKey(tab: SidebarTab): string {
-+  return tab.kind === 'plugin' ? `plugin:${tab.name}` : tab.mode;
-+}
-+
-+export function isSameSidebarTab(a: SidebarTab, b: SidebarTab): boolean {
-+  return sidebarTabKey(a) === sidebarTabKey(b);
-+}
-+
-+/** Enabled plugins that asked for a sidebar section, in the order they should appear. */
-+export function pluginSidebarChips(plugins: PluginLike[]): SidebarPluginChip[] {
-+  return plugins
-+    .filter((plugin) => plugin.enabled && plugin.sidebar)
-+    .map((plugin) => ({
-+      name: plugin.name,
-+      label: plugin.sidebar?.label ?? plugin.displayName,
-+      icon: plugin.sidebar?.icon ?? '',
-+      order: plugin.sidebar?.order ?? 500,
-+      replacesTab: plugin.sidebar?.replacesTab === true,
-+    }))
-+    .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label));
-+}
-+
 +/** Plugins that keep their tab in the main area (`replacesTab` is not set). */
 +export function pluginsShownAsTabs<T extends PluginLike>(plugins: T[]): T[] {
 +  return plugins.filter((plugin) => plugin.sidebar?.replacesTab !== true);
-+}
-+
-+/**
-+ * Restores the persisted tab. A plugin that has since been disabled or removed
-+ * falls back to `projects` instead of leaving the sidebar blank.
-+ */
-+export function parseSidebarTab(raw: string | null, availablePluginNames: string[]): SidebarTab {
-+  if (!raw) return { kind: 'builtin', mode: 'projects' };
-+
-+  if (raw.startsWith('plugin:')) {
-+    const name = raw.slice('plugin:'.length);
-+    return availablePluginNames.includes(name)
-+      ? { kind: 'plugin', name }
-+      : { kind: 'builtin', mode: 'projects' };
-+  }
-+
-+  return raw in BUILT_IN_SIDEBAR_ORDER
-+    ? { kind: 'builtin', mode: raw as SidebarSearchMode }
-+    : { kind: 'builtin', mode: 'projects' };
-+}
-+
-+/** The search box belongs to the built-in sections; a plugin surface owns its own header row. */
-+export function showsSearchTools(tab: SidebarTab): boolean {
-+  return tab.kind === 'builtin';
 +}
 +
 +/** Human-readable list of the surfaces a plugin occupies, for the settings list. */
@@ -519,21 +294,46 @@ index 0000000..2af1c0f
 +  if (plugin.sidebar) surfaces.push('Sidebar');
 +  return surfaces.join(' + ');
 +}
-diff --git a/src/components/sidebar/view/Sidebar.tsx b/src/components/sidebar/view/Sidebar.tsx
-index 7d475b5..80a66f1 100644
---- a/src/components/sidebar/view/Sidebar.tsx
-+++ b/src/components/sidebar/view/Sidebar.tsx
-@@ -67,6 +67,9 @@ function Sidebar({
-     editingSessionName,
+diff --git a/src/modules/project-workspace/WorkspaceTabs.tsx b/src/modules/project-workspace/WorkspaceTabs.tsx
+index 6e4c290a..7fd70193 100644
+--- a/src/modules/project-workspace/WorkspaceTabs.tsx
++++ b/src/modules/project-workspace/WorkspaceTabs.tsx
+@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
+ 
+ import { Tooltip, PillBar, Pill } from '@/shared/ui';
+ import type { AppTab } from '@/shared/types';
+-import { usePlugins,PluginIcon } from '@/modules/plugins';
++import { usePlugins,PluginIcon,pluginsShownAsTabs } from '@/modules/plugins';
+ 
+ type WorkspaceTabsProps = {
+   activeTab: AppTab;
+@@ -68,7 +68,9 @@ export default function WorkspaceTabs({
+     ...(shouldShowTasksTab ? [TASKS_TAB] : []),
+   ];
+ 
+-  const pluginTabs: PluginTab[] = plugins
++  // A plugin that took over a sidebar section with `replacesTab` is not shown
++  // here as well — it lives in one place, not two.
++  const pluginTabs: PluginTab[] = pluginsShownAsTabs(plugins)
+     .filter((p) => p.enabled)
+     .map((p) => ({
+       kind: 'plugin',
+diff --git a/src/modules/sidebar/Sidebar.tsx b/src/modules/sidebar/Sidebar.tsx
+index fe5d8316..c5f20621 100644
+--- a/src/modules/sidebar/Sidebar.tsx
++++ b/src/modules/sidebar/Sidebar.tsx
+@@ -88,7 +88,9 @@ function Sidebar({
+     isRefreshing,
      searchFilter,
      searchMode,
+-    setSearchMode,
 +    sidebarTab,
 +    setSidebarTab,
 +    sidebarPluginChips,
-     setSearchMode,
      conversationResults,
      isSearching,
-@@ -260,10 +263,12 @@ function Sidebar({
+     searchProgress,
+@@ -277,10 +279,12 @@ function Sidebar({
              onSearchFilterChange={setSearchFilter}
              onClearSearchFilter={() => setSearchFilter('')}
              searchMode={searchMode}
@@ -549,27 +349,25 @@ index 7d475b5..80a66f1 100644
              conversationResults={conversationResults}
              isSearching={isSearching}
              searchProgress={searchProgress}
-diff --git a/src/components/sidebar/view/subcomponents/SidebarContent.tsx b/src/components/sidebar/view/subcomponents/SidebarContent.tsx
-index 8dd9f74..55deded 100644
---- a/src/components/sidebar/view/subcomponents/SidebarContent.tsx
-+++ b/src/components/sidebar/view/subcomponents/SidebarContent.tsx
-@@ -6,12 +6,14 @@ import { ScrollArea } from '../../../../shared/view/ui';
- import type { Project } from '../../../../types/app';
- import type { ReleaseInfo } from '../../../../shared/types';
- import type { ConversationSearchResults, SearchProgress } from '../../hooks/useSidebarController';
--import type { ArchivedProjectListItem, ArchivedSessionListItem, RecentConversationListItem, SidebarSearchMode } from '../../types/types';
-+import type { ArchivedProjectListItem, ArchivedSessionListItem, RecentConversationListItem, SidebarSearchMode, SidebarTab } from '../../types/types';
-+import type { SidebarPluginChip } from '../../utils/sidebarTabs';
- import LLMProviderLogo from '../../../llm-provider-logo/LLMProviderLogo';
- import { formatCompactAge, getAllSessions } from '../../utils/utils';
+diff --git a/src/modules/sidebar/SidebarContent.tsx b/src/modules/sidebar/SidebarContent.tsx
+index b14998bc..9008630a 100644
+--- a/src/modules/sidebar/SidebarContent.tsx
++++ b/src/modules/sidebar/SidebarContent.tsx
+@@ -3,10 +3,12 @@ import { Activity, Archive, Folder, MessageSquare, RotateCcw, Search, Trash2 } f
+ import type { TFunction } from 'i18next';
  
- import SidebarFooter from './SidebarFooter';
- import SidebarHeader from './SidebarHeader';
-+import SidebarPluginSurface from './SidebarPluginSurface';
- import SidebarProjectList, { type SidebarProjectListProps } from './SidebarProjectList';
- import SidebarRecentConversations from './SidebarRecentConversations';
+ import { LLMProviderLogo, ScrollArea } from '@/shared/ui';
+-import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationSearchResults, Project, RecentConversationListItem, ReleaseInfo, SearchProgress, SidebarProjectListProps, SidebarSearchMode } from '@/shared/types';
++import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationSearchResults, Project, RecentConversationListItem, ReleaseInfo, SearchProgress, SidebarProjectListProps, SidebarSearchMode, SidebarTab } from '@/shared/types';
++import type { SidebarPluginChip } from '@/modules/sidebar/utils/sidebarTabs';
+ import { formatCompactAge, getAllSessions } from '@/modules/sidebar/utils/sidebarProjectFormatting';
+ import SidebarFooter from '@/modules/sidebar/SidebarFooter';
+ import SidebarHeader from '@/modules/sidebar/SidebarHeader';
++import SidebarPluginSurface from '@/modules/sidebar/SidebarPluginSurface';
+ import SidebarProjectList from '@/modules/sidebar/SidebarProjectList';
+ import SidebarRecentConversations from '@/modules/sidebar/SidebarRecentConversations';
  
-@@ -106,7 +108,10 @@ type SidebarContentProps = {
+@@ -101,7 +103,10 @@ type SidebarContentProps = {
    onSearchFilterChange: (value: string) => void;
    onClearSearchFilter: () => void;
    searchMode: SidebarSearchMode;
@@ -581,7 +379,7 @@ index 8dd9f74..55deded 100644
    conversationResults: ConversationSearchResults | null;
    isSearching: boolean;
    searchProgress: SearchProgress | null;
-@@ -154,7 +159,9 @@ export default function SidebarContent({
+@@ -150,7 +155,9 @@ export default function SidebarContent({
    onSearchFilterChange,
    onClearSearchFilter,
    searchMode,
@@ -592,7 +390,7 @@ index 8dd9f74..55deded 100644
    conversationResults,
    isSearching,
    searchProgress,
-@@ -207,14 +214,25 @@ export default function SidebarContent({
+@@ -201,14 +208,25 @@ export default function SidebarContent({
          onSearchFilterChange={onSearchFilterChange}
          onClearSearchFilter={onClearSearchFilter}
          searchMode={searchMode}
@@ -619,7 +417,7 @@ index 8dd9f74..55deded 100644
        <ScrollArea className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">
          {showConversationSearch ? (
            isSearching && !conversationResults ? (
-@@ -689,6 +707,7 @@ export default function SidebarContent({
+@@ -684,6 +702,7 @@ export default function SidebarContent({
            <SidebarProjectList {...projectListProps} />
          )}
        </ScrollArea>
@@ -627,28 +425,27 @@ index 8dd9f74..55deded 100644
  
        {!isRenamingOnMobile && (
          <SidebarFooter
-diff --git a/src/components/sidebar/view/subcomponents/SidebarHeader.tsx b/src/components/sidebar/view/subcomponents/SidebarHeader.tsx
-index 2d9c122..bc24fce 100644
---- a/src/components/sidebar/view/subcomponents/SidebarHeader.tsx
-+++ b/src/components/sidebar/view/subcomponents/SidebarHeader.tsx
-@@ -1,3 +1,4 @@
+diff --git a/src/modules/sidebar/SidebarHeader.tsx b/src/modules/sidebar/SidebarHeader.tsx
+index b59bbac6..1f90f6ed 100644
+--- a/src/modules/sidebar/SidebarHeader.tsx
++++ b/src/modules/sidebar/SidebarHeader.tsx
+@@ -1,10 +1,14 @@
 +import { Fragment, type ReactNode } from 'react';
  import { Activity, Archive, Folder, FolderPlus, MessageSquare, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
  import type { TFunction } from 'i18next';
  
-@@ -5,7 +6,10 @@ import { Button, Input, Tooltip } from '../../../../shared/view/ui';
- import { CLOUDCLI_WORDMARK_FONT_FAMILY } from '../../../../shared/constants';
- import { IS_PLATFORM } from '../../../../shared/utils';
- import { cn } from '../../../../lib/utils';
--import type { SidebarSearchMode } from '../../types/types';
-+import type { SidebarSearchMode, SidebarTab } from '../../types/types';
-+import type { SidebarPluginChip } from '../../utils/sidebarTabs';
-+import { BUILT_IN_SIDEBAR_ORDER, isSameSidebarTab, sidebarTabKey } from '../../utils/sidebarTabs';
-+import PluginIcon from '../../../plugins/view/PluginIcon';
+ import { Button, Input, Tooltip } from '@/shared/ui';
+ import { CLOUDCLI_WORDMARK_FONT_FAMILY } from '@/shared/constants';
+ import { IS_PLATFORM,cn } from '@/shared/utils';
+-import type { SidebarSearchMode } from '@/shared/types';
++import type { SidebarSearchMode, SidebarTab } from '@/shared/types';
++import type { SidebarPluginChip } from '@/modules/sidebar/utils/sidebarTabs';
++import { BUILT_IN_SIDEBAR_ORDER, isSameSidebarTab, sidebarTabKey } from '@/modules/sidebar/utils/sidebarTabs';
++import { PluginIcon } from '@/modules/plugins';
+ import GitHubStarBadge from '@/modules/sidebar/GitHubStarBadge';
  
- import GitHubStarBadge from './GitHubStarBadge';
- 
-@@ -24,7 +28,10 @@ type SidebarHeaderProps = {
+ const MOD_KEY =
+@@ -22,7 +26,10 @@ type SidebarHeaderProps = {
    onSearchFilterChange: (value: string) => void;
    onClearSearchFilter: () => void;
    searchMode: SidebarSearchMode;
@@ -660,7 +457,7 @@ index 2d9c122..bc24fce 100644
    onRefresh: () => void;
    isRefreshing: boolean;
    onCreateProject: () => void;
-@@ -44,14 +51,21 @@ export default function SidebarHeader({
+@@ -62,14 +69,21 @@ export default function SidebarHeader({
    onSearchFilterChange,
    onClearSearchFilter,
    searchMode,
@@ -684,7 +481,7 @@ index 2d9c122..bc24fce 100644
    const searchPlaceholder = searchMode === 'conversations'
      ? t('search.conversationsPlaceholder')
      : searchMode === 'archived'
-@@ -61,6 +75,138 @@ export default function SidebarHeader({
+@@ -79,6 +93,142 @@ export default function SidebarHeader({
          : t('projects.searchPlaceholder');
    const runningBadgeText = runningSessionsCount > 99 ? '99+' : String(runningSessionsCount);
  
@@ -700,8 +497,12 @@ index 2d9c122..bc24fce 100644
 +  /**
 +   * The section switcher. Built-in chips and plugin chips are one ordered list,
 +   * so a plugin declaring `order: 50` renders left of Projects (100).
++   *
++   * A render function rather than a nested component, for the same reason
++   * LogoBlock sits at module level: a component declared during render is a new
++   * type on every render and remounts its whole subtree.
 +   */
-+  const ChipRow = ({ showRunningLabel }: { showRunningLabel: boolean }) => {
++  const renderChipRow = (showRunningLabel: boolean) => {
 +    const chips: { key: string; order: number; node: ReactNode }[] = [];
 +
 +    if (hasSidebarContent) {
@@ -820,10 +621,10 @@ index 2d9c122..bc24fce 100644
 +    );
 +  };
 +
-   const LogoBlock = () => (
-     <div className="flex min-w-0 items-center gap-2.5">
-       <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-primary/90 shadow-sm">
-@@ -135,77 +281,11 @@ export default function SidebarHeader({
+   return (
+     <div className="flex-shrink-0">
+       {/* Desktop header */}
+@@ -137,77 +287,11 @@ export default function SidebarHeader({
  
          <GitHubStarBadge />
  
@@ -900,12 +701,12 @@ index 2d9c122..bc24fce 100644
 -                </button>
 -              </Tooltip>
 -            </div>
-+            <ChipRow showRunningLabel={false} />
++            {renderChipRow(false)}
 +            {showSearchTools && (
              <div className="relative">
                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
                <Input
-@@ -234,6 +314,7 @@ export default function SidebarHeader({
+@@ -236,6 +320,7 @@ export default function SidebarHeader({
                  </kbd>
                )}
              </div>
@@ -913,7 +714,7 @@ index 2d9c122..bc24fce 100644
            </div>
          )}
        </div>
-@@ -276,96 +357,31 @@ export default function SidebarHeader({
+@@ -278,96 +363,31 @@ export default function SidebarHeader({
            </div>
          </div>
  
@@ -931,7 +732,7 @@ index 2d9c122..bc24fce 100644
 -                  searchMode === 'projects'
 -                    ? "bg-background shadow-sm text-foreground"
 -                    : "text-muted-foreground hover:text-foreground"
-+            <ChipRow showRunningLabel />
++            {renderChipRow(true)}
 +            {showSearchTools && (
 +              <div className="relative">
 +                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/50" />
@@ -1033,18 +834,18 @@ index 2d9c122..bc24fce 100644
            </div>
          )}
        </div>
-diff --git a/src/components/sidebar/view/subcomponents/SidebarPluginSurface.tsx b/src/components/sidebar/view/subcomponents/SidebarPluginSurface.tsx
+diff --git a/src/modules/sidebar/SidebarPluginSurface.tsx b/src/modules/sidebar/SidebarPluginSurface.tsx
 new file mode 100644
-index 0000000..6f1b509
+index 00000000..4704c268
 --- /dev/null
-+++ b/src/components/sidebar/view/subcomponents/SidebarPluginSurface.tsx
++++ b/src/modules/sidebar/SidebarPluginSurface.tsx
 @@ -0,0 +1,142 @@
 +import { useEffect, useRef } from 'react';
 +
-+import { useTheme } from '../../../../contexts/ThemeContext';
-+import { usePlugins } from '../../../../contexts/PluginsContext';
-+import { authenticatedFetch } from '../../../../utils/api';
-+import type { Project, ProjectSession } from '../../../../types/app';
++import { useTheme } from '@/shared/context/ThemeContext';
++import { usePlugins } from '@/modules/plugins';
++import { authenticatedFetch } from '@/shared/api';
++import type { Project, ProjectSession } from '@/shared/types';
 +
 +type SidebarPluginSurfaceProps = {
 +  pluginName: string;
@@ -1179,13 +980,242 @@ index 0000000..6f1b509
 +    };
 +  }, [pluginName, plugin?.entry, plugin?.enabled]);
 +
-+  return <div ref={containerRef} className="h-full w-full min-h-0 overflow-auto" />;
++  return <div ref={containerRef} className="h-full min-h-0 w-full overflow-auto" />;
 +}
-diff --git a/src/contexts/PluginsContext.tsx b/src/contexts/PluginsContext.tsx
-index ccf404e..6aec182 100644
---- a/src/contexts/PluginsContext.tsx
-+++ b/src/contexts/PluginsContext.tsx
-@@ -14,6 +14,13 @@ export type Plugin = {
+diff --git a/src/modules/sidebar/hooks/useSidebarController.ts b/src/modules/sidebar/hooks/useSidebarController.ts
+index a12406fc..bd97777f 100644
+--- a/src/modules/sidebar/hooks/useSidebarController.ts
++++ b/src/modules/sidebar/hooks/useSidebarController.ts
+@@ -4,7 +4,9 @@ import type { TFunction } from 'i18next';
+ import { api } from '@/shared/api';
+ import { subscribeToUserPreferences } from '@/shared/userSettings';
+ import { usePaletteOps } from '@/modules/command-palette';
+-import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectSession, ProjectSortOrder, RecentConversationListItem, SearchProgress, ActiveSidebarRename, PendingSidebarDeletion, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode } from '@/shared/types';
++import { usePlugins } from '@/modules/plugins';
++import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectSession, ProjectSortOrder, RecentConversationListItem, SearchProgress, ActiveSidebarRename, PendingSidebarDeletion, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode, SidebarTab } from '@/shared/types';
++import { SIDEBAR_TAB_STORAGE_KEY, parseSidebarTab, pluginSidebarChips, sidebarTabKey } from '@/modules/sidebar/utils/sidebarTabs';
+ import {
+   filterProjects,
+   getAllSessions,
+@@ -96,6 +98,50 @@ export function useSidebarController({
+   const [pendingDeletion, setPendingDeletion] = useState<PendingSidebarDeletion | null>(null);
+   const [showVersionModal, setShowVersionModal] = useState(false);
+   const [searchMode, setSearchMode] = useState<SidebarSearchMode>('projects');
++  // Which section is on screen. Built-in sections keep driving `searchMode`;
++  // a plugin section replaces the list below the header.
++  const [sidebarTab, setSidebarTabState] = useState<SidebarTab>({ kind: 'builtin', mode: 'projects' });
++  const { plugins } = usePlugins();
++  const sidebarPluginChips = useMemo(() => pluginSidebarChips(plugins), [plugins]);
++  const sidebarTabRestoredRef = useRef(false);
++
++  const setSidebarTab = useCallback((tab: SidebarTab) => {
++    setSidebarTabState(tab);
++    if (tab.kind === 'builtin') setSearchMode(tab.mode);
++    try {
++      localStorage.setItem(SIDEBAR_TAB_STORAGE_KEY, sidebarTabKey(tab));
++    } catch {
++      // Storage unavailable — the selection just stops being sticky.
++    }
++  }, []);
++
++  // Restores the persisted section once the plugin list is known, and drops a
++  // plugin section that has since been disabled or uninstalled.
++  useEffect(() => {
++    const pluginNames = sidebarPluginChips.map((chip) => chip.name);
++
++    if (sidebarTab.kind === 'plugin' && !pluginNames.includes(sidebarTab.name)) {
++      setSidebarTabState({ kind: 'builtin', mode: 'projects' });
++      return;
++    }
++
++    if (sidebarTabRestoredRef.current) return;
++
++    let stored: string | null = null;
++    try {
++      stored = localStorage.getItem(SIDEBAR_TAB_STORAGE_KEY);
++    } catch {
++      stored = null;
++    }
++
++    // A stored plugin section waits for the plugin list to arrive.
++    if (stored?.startsWith('plugin:') && pluginNames.length === 0) return;
++
++    sidebarTabRestoredRef.current = true;
++    const restored = parseSidebarTab(stored, pluginNames);
++    setSidebarTabState(restored);
++    if (restored.kind === 'builtin') setSearchMode(restored.mode);
++  }, [sidebarPluginChips, sidebarTab]);
+   const [conversationResults, setConversationResults] = useState<ConversationSearchResults | null>(null);
+   const [isSearching, setIsSearching] = useState(false);
+   const [searchProgress, setSearchProgress] = useState<SearchProgress | null>(null);
+@@ -1090,8 +1136,12 @@ export function useSidebarController({
+     collapseSidebar,
+     expandSidebar,
+     setShowNewProject,
++    // searchMode is still read for the search placeholder and result lists, but it is
++    // set only through setSidebarTab now — the chip row switches tabs, not modes.
+     searchMode,
+-    setSearchMode,
++    sidebarTab,
++    setSidebarTab,
++    sidebarPluginChips,
+     conversationResults,
+     isSearching,
+     searchProgress,
+diff --git a/src/modules/sidebar/tests/sidebarTabs.test.ts b/src/modules/sidebar/tests/sidebarTabs.test.ts
+new file mode 100644
+index 00000000..163ef6d2
+--- /dev/null
++++ b/src/modules/sidebar/tests/sidebarTabs.test.ts
+@@ -0,0 +1,61 @@
++import assert from 'node:assert/strict';
++
++import { test } from 'vitest';
++
++import {
++  BUILT_IN_SIDEBAR_ORDER,
++  parseSidebarTab,
++  pluginSidebarChips,
++  showsSearchTools,
++  sidebarTabKey,
++} from '@/modules/sidebar/utils/sidebarTabs';
++
++const plugin = (overrides: Record<string, unknown> = {}) => ({
++  name: 'demo',
++  displayName: 'Demo Plugin',
++  enabled: true,
++  sidebar: null,
++  ...overrides,
++}) as Parameters<typeof pluginSidebarChips>[0][number];
++
++test('a plugin with a low order sits left of Projects', () => {
++  const chips = pluginSidebarChips([
++    plugin({ name: 'early', sidebar: { label: 'Notes', icon: 'i.svg', order: 50, replacesTab: true } }),
++    plugin({ name: 'late', sidebar: { label: 'Notes', icon: 'i.svg', order: 900, replacesTab: false } }),
++  ]);
++
++  assert.deepEqual(chips.map((chip) => chip.name), ['early', 'late']);
++  assert.ok(chips[0].order < BUILT_IN_SIDEBAR_ORDER.projects);
++  assert.ok(chips[1].order > BUILT_IN_SIDEBAR_ORDER.archived);
++});
++
++test('only enabled plugins that declared a sidebar produce a chip', () => {
++  const chips = pluginSidebarChips([
++    plugin({ name: 'no-sidebar' }),
++    plugin({ name: 'disabled', enabled: false, sidebar: { label: 'X', icon: 'i.svg', order: 10, replacesTab: false } }),
++    plugin({ name: 'shown', sidebar: { label: 'Shown', icon: 'i.svg', order: 10, replacesTab: false } }),
++  ]);
++
++  assert.deepEqual(chips.map((chip) => chip.name), ['shown']);
++});
++
++test('the persisted tab is restored, and a vanished plugin falls back to projects', () => {
++  assert.deepEqual(parseSidebarTab('plugin:demo', ['demo']), { kind: 'plugin', name: 'demo' });
++  assert.deepEqual(parseSidebarTab('plugin:gone', ['demo']), { kind: 'builtin', mode: 'projects' });
++  assert.deepEqual(parseSidebarTab('archived', []), { kind: 'builtin', mode: 'archived' });
++  assert.deepEqual(parseSidebarTab('nonsense', []), { kind: 'builtin', mode: 'projects' });
++  assert.deepEqual(parseSidebarTab(null, []), { kind: 'builtin', mode: 'projects' });
++
++  assert.equal(sidebarTabKey({ kind: 'plugin', name: 'demo' }), 'plugin:demo');
++  assert.equal(sidebarTabKey({ kind: 'builtin', mode: 'running' }), 'running');
++});
++
++test('the search box belongs to the built-in sections only', () => {
++  assert.equal(showsSearchTools({ kind: 'builtin', mode: 'projects' }), true);
++  assert.equal(showsSearchTools({ kind: 'plugin', name: 'demo' }), false);
++});
++
++test('a host with no sidebar plugins produces no chips at all', () => {
++  assert.deepEqual(pluginSidebarChips([]), []);
++  assert.deepEqual(pluginSidebarChips([plugin(), plugin({ name: 'other' })]), []);
++});
+diff --git a/src/modules/sidebar/utils/sidebarTabs.ts b/src/modules/sidebar/utils/sidebarTabs.ts
+new file mode 100644
+index 00000000..79712daa
+--- /dev/null
++++ b/src/modules/sidebar/utils/sidebarTabs.ts
+@@ -0,0 +1,76 @@
++import type { SidebarSearchMode, SidebarTab } from '@/shared/types';
++
++/**
++ * Where the built-in sections sit in the chip row. Plugins carry their own
++ * `order`, so a plugin can place itself before `Projects` purely by data.
++ */
++export const BUILT_IN_SIDEBAR_ORDER: Record<SidebarSearchMode, number> = {
++  projects: 100,
++  conversations: 200,
++  running: 300,
++  archived: 400,
++};
++
++export const SIDEBAR_TAB_STORAGE_KEY = 'sidebar-tab';
++
++export type SidebarPluginChip = {
++  name: string;
++  label: string;
++  icon: string;
++  order: number;
++  replacesTab: boolean;
++};
++
++type PluginLike = {
++  name: string;
++  displayName: string;
++  enabled: boolean;
++  sidebar?: { label: string; icon: string; order: number; replacesTab: boolean } | null;
++};
++
++/** Serialised form used for persistence and for React keys. */
++export function sidebarTabKey(tab: SidebarTab): string {
++  return tab.kind === 'plugin' ? `plugin:${tab.name}` : tab.mode;
++}
++
++export function isSameSidebarTab(a: SidebarTab, b: SidebarTab): boolean {
++  return sidebarTabKey(a) === sidebarTabKey(b);
++}
++
++/** Enabled plugins that asked for a sidebar section, in the order they should appear. */
++export function pluginSidebarChips(plugins: PluginLike[]): SidebarPluginChip[] {
++  return plugins
++    .filter((plugin) => plugin.enabled && plugin.sidebar)
++    .map((plugin) => ({
++      name: plugin.name,
++      label: plugin.sidebar?.label ?? plugin.displayName,
++      icon: plugin.sidebar?.icon ?? '',
++      order: plugin.sidebar?.order ?? 500,
++      replacesTab: plugin.sidebar?.replacesTab === true,
++    }))
++    .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label));
++}
++
++/**
++ * Restores the persisted tab. A plugin that has since been disabled or removed
++ * falls back to `projects` instead of leaving the sidebar blank.
++ */
++export function parseSidebarTab(raw: string | null, availablePluginNames: string[]): SidebarTab {
++  if (!raw) return { kind: 'builtin', mode: 'projects' };
++
++  if (raw.startsWith('plugin:')) {
++    const name = raw.slice('plugin:'.length);
++    return availablePluginNames.includes(name)
++      ? { kind: 'plugin', name }
++      : { kind: 'builtin', mode: 'projects' };
++  }
++
++  return raw in BUILT_IN_SIDEBAR_ORDER
++    ? { kind: 'builtin', mode: raw as SidebarSearchMode }
++    : { kind: 'builtin', mode: 'projects' };
++}
++
++/** The search box belongs to the built-in sections; a plugin surface owns its own header row. */
++export function showsSearchTools(tab: SidebarTab): boolean {
++  return tab.kind === 'builtin';
++}
+diff --git a/src/shared/types.ts b/src/shared/types.ts
+index 8a667d7b..35f890de 100644
+--- a/src/shared/types.ts
++++ b/src/shared/types.ts
+@@ -1003,6 +1003,13 @@ export type Plugin = {
    entry: string;
    server: string | null;
    permissions: string[];
@@ -1199,6 +1229,21 @@ index ccf404e..6aec182 100644
    enabled: boolean;
    serverRunning: boolean;
    dirName: string;
+@@ -1290,6 +1297,14 @@ export type ProjectSortOrder = 'name' | 'date';
+ /** Which list the sidebar is currently showing: projects, conversation search results, running sessions or archived items. */
+ export type SidebarSearchMode = 'projects' | 'conversations' | 'running' | 'archived';
+ 
++/**
++ * Which section the sidebar is showing: one of the built-in modes, or a section
++ * contributed by a plugin through its manifest.
++ */
++export type SidebarTab =
++  | { kind: 'builtin'; mode: SidebarSearchMode }
++  | { kind: 'plugin'; name: string };
++
+ /** A Project narrowed to the archived state so archived entries can be listed and restored without being mistaken for active projects. */
+ export type ArchivedProjectListItem = Project & { isArchived: true };
+ 
 -- 
 2.55.0
 

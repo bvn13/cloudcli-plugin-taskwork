@@ -10,19 +10,29 @@ refuses to run otherwise.
 ## [Unreleased]
 
 ### Added
-- **A pencil button renames a task.** It appears on hover next to the delete
-  icon, in the same place and order as on the host's own project rows; the
-  double-click and `F2` routes are unchanged.
+- **A task row's actions live in a menu on the age badge.** Clicking the badge
+  opens `Rename` and `Delete` over the tree; `Escape`, a click outside or either
+  action closes it. The double-click, `F2` and `Delete` routes are unchanged.
 
 ### Changed
+- **The task row no longer reserves width for hidden buttons.** Rename and delete
+  used to be hover icons that cost 48px of every row whether or not they were
+  visible — with the sidebar narrowed, that space came out of the task title.
+  They moved into the age badge's menu, which reserves nothing while closed.
 - **A new task's draft row no longer disappears when it loses focus.** Only
   `Enter` (saves), `Escape`, an empty title or a second `+` closes it; clicking
   anywhere else keeps the row and the text typed into it. The text now also
   survives a re-render of the tree — including the one that shows a save error —
   and the draft never pulls focus back from wherever the user moved it.
-- `patches/0002-feat-plugin-host-api.patch` regenerated: it now carries the
-  review fix from upstream PR #1191 — the host api ref is assigned in an effect
-  instead of during render, which React's purity rule forbids.
+- **The host patches moved to current upstream `main`** (`3ed3be5a`, a few commits
+  past CloudCLI `1.37.3`). All three are regenerated from the feature branches,
+  which are kept current by merging `main` into them rather than by sitting on a
+  release tag, and carry the work done since they were last exported: the section
+  chips fold into a `…` dropdown (`0001`), and the host-API path check no longer
+  looks at the query string (`0002`, review fix from upstream PR #1191, together
+  with assigning the host api ref in an effect instead of during render).
+  `0002` and `0003` apply to the `v1.37.3` tag unchanged; `0001` needs the
+  Indonesian locale upstream added just after the release.
 
 ## [1.1.0] — 2026-08-21
 

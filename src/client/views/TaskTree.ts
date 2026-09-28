@@ -22,6 +22,8 @@ export interface ViewState {
   /** What has been typed into the draft so far — it survives re-renders (§9.3). */
   draftTitle: string;
   editingTaskId: string | null;
+  /** The task whose row menu is open — at most one across the whole tree (§9.4). */
+  menuTaskId: string | null;
   confirm: ConfirmTarget | null;
   pickerTaskId: string | null;
   pickerError: string | null;
@@ -47,6 +49,9 @@ export interface TreeCallbacks {
   setDraftTitle(title: string): void;
   commitDraft(title: string): void;
   toggle(taskId: string): void;
+  openMenu(taskId: string): void;
+  /** `restoreFocus` puts focus back on the badge — for the routes that still own it. */
+  closeMenu(restoreFocus?: boolean): void;
   startRename(taskId: string): void;
   commitRename(taskId: string, title: string): void;
   cancelRename(): void;

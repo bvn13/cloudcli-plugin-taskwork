@@ -85,6 +85,8 @@ const CSS = `
 }
 .tw-node:hover { background: var(--tw-accent-soft); }
 .tw-node[aria-selected="true"] { background: var(--tw-accent); color: var(--tw-accent-fg); }
+/* Anchor for the row menu, which is positioned against the row's right edge. */
+.tw-node-task { position: relative; }
 .tw-node-attachment { padding: 6px 8px; }
 .tw-node-attachment[data-clickable="false"] { cursor: default; }
 .tw-node-removed .tw-node-title { color: var(--tw-muted); text-decoration: line-through; }
@@ -119,10 +121,28 @@ const CSS = `
 }
 .tw-node-input:focus { border-color: var(--tw-primary); outline: none; }
 
+/* The age badge is also the row's actions trigger (§9.4). */
 .tw-age {
-  flex: 0 0 auto; color: var(--tw-muted);
-  font-size: 11px; font-variant-numeric: tabular-nums;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto; min-width: 24px; height: 20px; padding: 0 4px;
+  border: none; border-radius: 4px; background: transparent;
+  color: var(--tw-muted); cursor: pointer;
+  font: inherit; font-size: 11px; font-variant-numeric: tabular-nums;
+  transition: background-color .15s, color .15s;
 }
+.tw-age:hover, .tw-age[aria-expanded="true"] { background: var(--tw-accent); color: var(--tw-fg); }
+
+/* Opens over the tree instead of reserving room in the row while it is closed. */
+.tw-menu {
+  position: absolute; top: calc(100% - 4px); right: 4px; z-index: 20;
+  display: flex; flex-direction: column; gap: 2px;
+  min-width: 140px; max-width: calc(100% - 8px); padding: 4px;
+  border: 1px solid var(--tw-border); border-radius: 8px;
+  background: hsl(var(--popover, var(--background, 0 0% 100%)));
+  box-shadow: 0 4px 12px hsl(0 0% 0% / .2);
+  cursor: default;
+}
+.tw-option-danger { color: var(--tw-danger); }
 .tw-chevron {
   display: flex; align-items: center; justify-content: center;
   flex: 0 0 24px; width: 24px; height: 24px; border-radius: 4px;

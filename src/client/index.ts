@@ -44,6 +44,7 @@ function initialView(): ViewState {
     draftError: null,
     draftTitle: '',
     editingTaskId: null,
+    menuTaskId: null,
     confirm: null,
     pickerTaskId: null,
     pickerError: null,
@@ -122,8 +123,22 @@ function treeContext(instance: Instance): TreeContext {
       setDraftTitle: (title) => { instance.view.draftTitle = title; },
       commitDraft: (title) => { void commitDraft(instance, title); },
       toggle: (taskId) => instance.store.toggleExpanded(taskId),
+      openMenu: (taskId) => {
+        instance.view = { ...instance.view, menuTaskId: taskId };
+        render(instance);
+      },
+      closeMenu: (restoreFocus = false) => {
+        const taskId = instance.view.menuTaskId;
+        if (taskId === null) return;
+        instance.view = { ...instance.view, menuTaskId: null };
+        render(instance);
+        // The re-render throws away the node that had focus, so Escape (and the
+        // badge closing its own menu) has to hand it back to the rebuilt badge.
+        if (restoreFocus) focusAgeBadge(instance, taskId);
+      },
+      // Both row actions are reached through the menu, so both close it.
       startRename: (taskId) => {
-        instance.view = { ...instance.view, editingTaskId: taskId };
+        instance.view = { ...instance.view, editingTaskId: taskId, menuTaskId: null };
         render(instance);
       },
       commitRename: (taskId, title) => { void commitRename(instance, taskId, title); },
@@ -132,7 +147,7 @@ function treeContext(instance: Instance): TreeContext {
         render(instance);
       },
       requestDelete: (target) => {
-        instance.view = { ...instance.view, confirm: target };
+        instance.view = { ...instance.view, confirm: target, menuTaskId: null };
         render(instance);
       },
       confirmDelete: (target) => { void confirmDelete(instance, target); },
@@ -155,6 +170,13 @@ function treeContext(instance: Instance): TreeContext {
       retry: () => { void reload(instance); },
     },
   };
+}
+
+/** Finds the rebuilt badge of one task; ids go through `dataset`, never a selector. */
+function focusAgeBadge(instance: Instance, taskId: string): void {
+  const rows = [...instance.root.querySelectorAll<HTMLElement>('.tw-node-task')];
+  const row = rows.find((candidate) => candidate.dataset.taskId === taskId);
+  row?.querySelector<HTMLElement>('.tw-age')?.focus();
 }
 
 function render(instance: Instance): void {
@@ -388,13 +410,24 @@ export function mount(container: HTMLElement, api: PluginApi): void {
     void loadSessions(instance);
   });
 
-  // One document-level listener per instance closes an open drop-down on an
-  // outside click; it is removed again in unmount (§10).
+  // One document-level listener per instance closes an open drop-down — the
+  // project picker or a row menu — on an outside click; removed in unmount (§10).
   instance.onDocumentPointerDown = (event: Event) => {
-    if (instance.view.pickerTaskId === null) return;
-    const target = event.target as Node | null;
-    if (target && root.contains(target) && (target as HTMLElement).closest?.('.tw-picker')) return;
-    instance.view = { ...instance.view, pickerTaskId: null };
+    const { pickerTaskId, menuTaskId } = instance.view;
+    if (pickerTaskId === null && menuTaskId === null) return;
+
+    const node = event.target as Node | null;
+    const target = node && root.contains(node) ? (node as HTMLElement) : null;
+    // The age badge toggles its own menu on `click`; closing it here would
+    // reopen it a moment later and the button would never close anything.
+    const inMenu = Boolean(target?.closest?.('.tw-menu') ?? target?.closest?.('.tw-age'));
+
+    let next = instance.view;
+    if (pickerTaskId !== null && !target?.closest?.('.tw-picker')) next = { ...next, pickerTaskId: null };
+    if (menuTaskId !== null && !inMenu) next = { ...next, menuTaskId: null };
+    if (next === instance.view) return;
+
+    instance.view = next;
     render(instance);
   };
   document.addEventListener('pointerdown', instance.onDocumentPointerDown, true);

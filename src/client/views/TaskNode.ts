@@ -9,7 +9,6 @@ import {
   el,
   focusSoon,
   icon,
-  iconButton,
 } from '../dom.js';
 import type { TreeContext } from './TaskTree.js';
 
@@ -73,6 +72,60 @@ function createInlineInput(options: {
 
   if (!options.busy && options.autoFocus !== false) focusSoon(input);
   return input;
+}
+
+/**
+ * The task row's actions (§9.4), in a drop-down anchored to the age badge.
+ *
+ * They used to be two hover buttons sitting in the row, which cost 48px of row
+ * width whether or not they were visible — width a narrow sidebar spends on the
+ * title instead. The menu is positioned absolutely, so it overlays the tree when
+ * it opens rather than reserving anything while it is closed.
+ */
+function createRowMenu(context: TreeContext, task: Task): HTMLElement {
+  const menu = el('div', {
+    className: 'tw-menu',
+    attrs: { role: 'menu', 'aria-label': `Actions for “${task.title}”`, tabindex: '-1' },
+  });
+
+  const item = (className: string, label: string, glyph: Node, action: () => void): HTMLElement => {
+    const button = el('button', {
+      className,
+      attrs: { type: 'button', role: 'menuitem' },
+      children: [glyph, el('span', { text: label })],
+    });
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      action();
+    });
+    menu.appendChild(button);
+    return button;
+  };
+
+  const rename = item('tw-option', 'Rename', icon(ICON_PENCIL), () => context.callbacks.startRename(task.id));
+  item('tw-option tw-option-danger', 'Delete', icon(ICON_TRASH), () =>
+    context.callbacks.requestDelete({ kind: 'task', taskId: task.id }));
+
+  menu.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    context.callbacks.closeMenu(true);
+  });
+
+  // Leaving by keyboard closes the menu; a click outside is handled by the single
+  // document-level listener owned by the instance (§10), as it is for the picker.
+  menu.addEventListener('focusout', (event) => {
+    // A re-render detaches this menu while its item still holds focus; the
+    // focusout that follows belongs to the old tree and must close nothing.
+    if (!menu.isConnected) return;
+    const next = event.relatedTarget as Node | null;
+    if (next && menu.contains(next)) return;
+    context.callbacks.closeMenu();
+  });
+
+  requestAnimationFrame(() => rename.focus());
+  return menu;
 }
 
 /** Subtitle under a task title, mirroring the project row's session count. */
@@ -152,24 +205,28 @@ export function createTaskNode(context: TreeContext, task: Task, now: Date): HTM
     });
     row.appendChild(text);
 
-    // Pencil, trash, then the age badge: the two buttons fade in on hover, and
-    // reserving their width here keeps the badge from shifting as they appear.
-    const rename = iconButton('tw-icon', `Rename task ${task.title}`, icon(ICON_PENCIL));
-    rename.addEventListener('click', (event) => {
-      event.stopPropagation();
-      context.callbacks.startRename(task.id);
-    });
-    row.appendChild(rename);
+    // The age badge doubles as the actions trigger: rename and delete live in the
+    // drop-down it opens, so the row spends no width on them while it is closed.
+    const menuOpen = context.view.menuTaskId === task.id;
+    const value = el('span', { text: formatCompactAge(task.createdAt, now) });
+    value.setAttribute(AGE_ATTR, task.createdAt);
 
-    const remove = iconButton('tw-icon tw-icon-danger', `Delete task ${task.title}`, icon(ICON_TRASH));
-    remove.addEventListener('click', (event) => {
-      event.stopPropagation();
-      context.callbacks.requestDelete({ kind: 'task', taskId: task.id });
+    const age = el('button', {
+      className: 'tw-age',
+      title: 'Task actions',
+      attrs: {
+        type: 'button',
+        'aria-haspopup': 'menu',
+        'aria-expanded': String(menuOpen),
+        'aria-label': `Task actions — ${task.title}`,
+      },
+      children: [value],
     });
-    row.appendChild(remove);
-
-    const age = el('span', { className: 'tw-age', text: formatCompactAge(task.createdAt, now) });
-    age.setAttribute(AGE_ATTR, task.createdAt);
+    age.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (menuOpen) context.callbacks.closeMenu(true);
+      else context.callbacks.openMenu(task.id);
+    });
     row.appendChild(age);
 
     row.appendChild(el('span', {
@@ -177,6 +234,8 @@ export function createTaskNode(context: TreeContext, task: Task, now: Date): HTM
       attrs: { 'aria-hidden': 'true' },
       children: [icon(expanded ? ICON_CHEVRON_DOWN : ICON_CHEVRON_RIGHT)],
     }));
+
+    if (menuOpen) row.appendChild(createRowMenu(context, task));
 
     row.addEventListener('click', () => context.callbacks.toggle(task.id));
   }

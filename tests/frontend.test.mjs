@@ -61,6 +61,11 @@ function fakeApi({ tasks = [], locked = [], project = null, host, surface } = {}
         tasks = tasks.map((t) => (t.id === taskId ? { ...t, title: body.title } : t));
         return { task: tasks.find((t) => t.id === taskId) };
       }
+      if (method === 'DELETE' && /^\/tasks\/[^/]+$/.test(endpoint)) {
+        const taskId = endpoint.split('/').pop();
+        tasks = tasks.filter((t) => t.id !== taskId);
+        return {};
+      }
       if (method === 'PATCH' && /\/attachments\//.test(endpoint)) {
         const projectId = endpoint.split('/').pop();
         const task = tasks[0];
@@ -400,7 +405,7 @@ describe('taskwork frontend', () => {
     unmount(container);
   });
 
-  it('the pencil opens the rename editor without expanding the task', async () => {
+  it('the age badge opens a row menu that renames without expanding the task', async () => {
     const container = dom.document.createElement('div');
     dom.document.body.appendChild(container);
     const api = fakeApi({ tasks: [sample()] });
@@ -408,19 +413,40 @@ describe('taskwork frontend', () => {
     mount(container, api);
     await settle();
 
-    const pencil = container.querySelector('[aria-label="Rename task Refactor billing"]');
-    assert.ok(pencil, 'a hover-state pencil sits on the task row');
-    // Row layout, left to right: title, pencil, trash, age badge, chevron.
+    const badge = container.querySelector('[aria-label="Task actions — Refactor billing"]');
+    assert.ok(badge, 'the age badge is the row\'s actions trigger');
+    assert.equal(badge.getAttribute('aria-expanded'), 'false');
+    // Closed, the row is only: icon, title, age badge, chevron — the actions
+    // reserve no width, which is the whole point of the menu (§9.4).
     assert.deepEqual(
-      pencil.parentNode.childNodes.map((node) => node.className),
-      ['tw-node-icon', 'tw-node-text', 'tw-icon', 'tw-icon tw-icon-danger', 'tw-age', 'tw-chevron'],
-    );
-    assert.equal(
-      pencil.parentNode.childNodes[3].getAttribute('aria-label'),
-      'Delete task Refactor billing',
+      badge.parentNode.childNodes.map((node) => node.className),
+      ['tw-node-icon', 'tw-node-text', 'tw-age', 'tw-chevron'],
     );
 
-    pencil.click();
+    badge.click();
+    await settle();
+
+    const row = container.querySelector('[data-task-id]');
+    assert.equal(row.querySelector('.tw-age').getAttribute('aria-expanded'), 'true');
+    const menu = row.querySelector('.tw-menu');
+    assert.ok(menu, 'the menu is rendered inside the row, on top of the tree');
+    assert.deepEqual(menu.childNodes.map((node) => node.textContent), ['Rename', 'Delete']);
+    // Opening it must not have toggled the row underneath.
+    assert.deepEqual(JSON.parse(globalThis.localStorage.getItem('taskwork:expanded') ?? '[]'), []);
+
+    // Escape closes it again, and a second click on the badge reopens it.
+    fire(menu, 'keydown', { key: 'Escape' });
+    await settle();
+    assert.equal(container.querySelector('.tw-menu'), null);
+    assert.equal(
+      dom.document.activeElement.className,
+      'tw-age',
+      'Escape hands focus back to the badge instead of dropping it on the body',
+    );
+
+    container.querySelector('.tw-age').click();
+    await settle();
+    container.querySelector('.tw-menu').childNodes[0].click();
     await settle();
 
     const input = container.querySelector('[placeholder="Task name"]');
@@ -441,6 +467,46 @@ describe('taskwork frontend', () => {
     unmount(container);
   });
 
+  it('the row menu closes on an outside click and deletes after confirmation', async () => {
+    const container = dom.document.createElement('div');
+    dom.document.body.appendChild(container);
+    const api = fakeApi({ tasks: [sample()] });
+
+    mount(container, api);
+    await settle();
+
+    const openMenu = async () => {
+      container.querySelector('.tw-age').click();
+      await settle();
+      return container.querySelector('.tw-menu');
+    };
+
+    // A click anywhere outside dismisses the menu and changes nothing.
+    await openMenu();
+    fire(dom.document.body, 'pointerdown');
+    await settle();
+    assert.equal(container.querySelector('.tw-menu'), null);
+    assert.match(container.textContent, /Refactor billing/);
+
+    // Delete asks first — the menu is replaced by the confirm row, not by a request.
+    const menu = await openMenu();
+    menu.childNodes[1].click();
+    await settle();
+    assert.equal(container.querySelector('.tw-menu'), null);
+    assert.equal(api.calls.filter((c) => c.method === 'DELETE').length, 0);
+    assert.match(container.textContent, /Delete “Refactor billing” and detach its projects\?/);
+
+    container.querySelector('.tw-confirm').childNodes[1].click();
+    await settle();
+    assert.deepEqual(
+      api.calls.filter((c) => c.method === 'DELETE').map((c) => c.path),
+      ['/tasks/tsk_1'],
+    );
+    assert.match(container.textContent, /No tasks yet/);
+
+    unmount(container);
+  });
+
   it('renaming: Escape cancels, blur saves, an unchanged title sends nothing', async () => {
     const container = dom.document.createElement('div');
     dom.document.body.appendChild(container);
@@ -450,8 +516,10 @@ describe('taskwork frontend', () => {
     await settle();
 
     const openEditor = () => {
-      // The pencil is the first action button on the row; its label follows the title.
-      container.querySelectorAll('.tw-icon')[0].click();
+      // Rename is the first item of the menu the age badge opens.
+      container.querySelectorAll('.tw-age')[0].click();
+      dom.flushFrames();
+      container.querySelector('.tw-menu').childNodes[0].click();
       dom.flushFrames();
       return container.querySelector('[placeholder="Task name"]');
     };

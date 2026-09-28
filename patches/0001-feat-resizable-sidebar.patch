@@ -1,7 +1,7 @@
-From 749d92743f0da9849b94aa41cfc3a8c9b8e6c00f Mon Sep 17 00:00:00 2001
+From 8e7aac65a1b3ea4650f471a52a6d7510fe31de6d Mon Sep 17 00:00:00 2001
 From: bvn13 <from.github@bvn13.me>
 Date: Fri, 21 Aug 2026 21:27:12 +0300
-Subject: [PATCH] feat(sidebar): let the sidebar be resized
+Subject: [PATCH 1/4] feat(sidebar): let the sidebar be resized
 
 The desktop sidebar has been fixed at 288px (md:w-72). On wide screens that
 wastes space; with long project names it truncates everything.
@@ -13,68 +13,225 @@ adjust it in 16px steps, and the mobile drawer is untouched.
 The width lives in its own hook rather than in useUiPreferences, which stores
 booleans only (parseBoolean, VALID_KEYS).
 ---
- src/components/app/AppContent.tsx             | 88 ++++++++++++++++++-
- .../view/subcomponents/SidebarContent.tsx     |  2 +-
- src/hooks/useSidebarWidth.test.ts             | 30 +++++++
- src/hooks/useSidebarWidth.ts                  | 60 +++++++++++++
- src/i18n/locales/de/common.json               |  3 +-
- src/i18n/locales/en/common.json               |  3 +-
- src/i18n/locales/es/common.json               |  3 +-
- src/i18n/locales/fr/common.json               |  3 +-
- src/i18n/locales/it/common.json               |  3 +-
- src/i18n/locales/ja/common.json               |  3 +-
- src/i18n/locales/ko/common.json               |  3 +-
- src/i18n/locales/ru/common.json               |  3 +-
- src/i18n/locales/tr/common.json               |  3 +-
- src/i18n/locales/zh-CN/common.json            |  3 +-
- src/i18n/locales/zh-TW/common.json            |  3 +-
- 15 files changed, 199 insertions(+), 14 deletions(-)
- create mode 100644 src/hooks/useSidebarWidth.test.ts
- create mode 100644 src/hooks/useSidebarWidth.ts
+ src/modules/i18n/locales/de/common.json       |  3 +-
+ src/modules/i18n/locales/en/common.json       |  3 +-
+ src/modules/i18n/locales/es/common.json       |  3 +-
+ src/modules/i18n/locales/fr/common.json       |  3 +-
+ src/modules/i18n/locales/it/common.json       |  3 +-
+ src/modules/i18n/locales/ja/common.json       |  3 +-
+ src/modules/i18n/locales/ko/common.json       |  3 +-
+ src/modules/i18n/locales/ru/common.json       |  3 +-
+ src/modules/i18n/locales/tr/common.json       |  3 +-
+ src/modules/i18n/locales/zh-CN/common.json    |  3 +-
+ src/modules/i18n/locales/zh-TW/common.json    |  3 +-
+ .../ProjectSidebarRegion.tsx                  | 90 ++++++++++++++++++-
+ src/modules/sidebar/SidebarContent.tsx        |  2 +-
+ src/shared/hooks/useSidebarWidth.ts           | 60 +++++++++++++
+ src/shared/tests/useSidebarWidth.test.ts      | 31 +++++++
+ 15 files changed, 202 insertions(+), 14 deletions(-)
+ create mode 100644 src/shared/hooks/useSidebarWidth.ts
+ create mode 100644 src/shared/tests/useSidebarWidth.test.ts
 
-diff --git a/src/components/app/AppContent.tsx b/src/components/app/AppContent.tsx
-index 5d3b428..206b12d 100644
---- a/src/components/app/AppContent.tsx
-+++ b/src/components/app/AppContent.tsx
-@@ -1,4 +1,4 @@
--import { useCallback, useEffect } from 'react';
-+import { useCallback, useEffect, useRef } from 'react';
- import { useNavigate, useParams } from 'react-router-dom';
+diff --git a/src/modules/i18n/locales/de/common.json b/src/modules/i18n/locales/de/common.json
+index da18a664..5c6f2999 100644
+--- a/src/modules/i18n/locales/de/common.json
++++ b/src/modules/i18n/locales/de/common.json
+@@ -234,7 +234,8 @@
+       "showSidebar": "Seitenleiste anzeigen",
+       "settings": "Einstellungen",
+       "updateAvailable": "Update verfügbar",
+-      "closeSidebar": "Seitenleiste schließen"
++      "closeSidebar": "Seitenleiste schließen",
++      "resizeSidebar": "Seitenleistenbreite ändern"
+     }
+   }
+ }
+diff --git a/src/modules/i18n/locales/en/common.json b/src/modules/i18n/locales/en/common.json
+index c41b93b9..8ee82305 100644
+--- a/src/modules/i18n/locales/en/common.json
++++ b/src/modules/i18n/locales/en/common.json
+@@ -265,7 +265,8 @@
+       "showSidebar": "Show sidebar",
+       "settings": "Settings",
+       "updateAvailable": "Update available",
+-      "closeSidebar": "Close sidebar"
++      "closeSidebar": "Close sidebar",
++      "resizeSidebar": "Resize sidebar"
+     },
+     "startingUpdate": "Starting update...",
+     "updateStartedRestarting": "Update started. The server appears to be restarting to apply it.",
+diff --git a/src/modules/i18n/locales/es/common.json b/src/modules/i18n/locales/es/common.json
+index a97ef79a..fed2871d 100644
+--- a/src/modules/i18n/locales/es/common.json
++++ b/src/modules/i18n/locales/es/common.json
+@@ -264,7 +264,8 @@
+       "showSidebar": "Mostrar barra lateral",
+       "settings": "Ajustes",
+       "updateAvailable": "Actualización disponible",
+-      "closeSidebar": "Cerrar barra lateral"
++      "closeSidebar": "Cerrar barra lateral",
++      "resizeSidebar": "Redimensionar barra lateral"
+     }
+   }
+ }
+diff --git a/src/modules/i18n/locales/fr/common.json b/src/modules/i18n/locales/fr/common.json
+index 0418929f..5a1ae9c9 100644
+--- a/src/modules/i18n/locales/fr/common.json
++++ b/src/modules/i18n/locales/fr/common.json
+@@ -264,7 +264,8 @@
+       "showSidebar": "Afficher la barre latérale",
+       "settings": "Paramètres",
+       "updateAvailable": "Mise à jour disponible",
+-      "closeSidebar": "Masquer la barre latérale"
++      "closeSidebar": "Masquer la barre latérale",
++      "resizeSidebar": "Redimensionner la barre latérale"
+     }
+   }
+ }
+diff --git a/src/modules/i18n/locales/it/common.json b/src/modules/i18n/locales/it/common.json
+index d4706f72..b043b4cf 100644
+--- a/src/modules/i18n/locales/it/common.json
++++ b/src/modules/i18n/locales/it/common.json
+@@ -264,7 +264,8 @@
+       "showSidebar": "Mostra barra laterale",
+       "settings": "Impostazioni",
+       "updateAvailable": "Aggiornamento disponibile",
+-      "closeSidebar": "Chiudi barra laterale"
++      "closeSidebar": "Chiudi barra laterale",
++      "resizeSidebar": "Ridimensiona barra laterale"
+     }
+   }
+ }
+diff --git a/src/modules/i18n/locales/ja/common.json b/src/modules/i18n/locales/ja/common.json
+index e1a2c5bb..e329725a 100644
+--- a/src/modules/i18n/locales/ja/common.json
++++ b/src/modules/i18n/locales/ja/common.json
+@@ -264,7 +264,8 @@
+       "showSidebar": "サイドバーを表示",
+       "settings": "設定",
+       "updateAvailable": "アップデートあり",
+-      "closeSidebar": "サイドバーを閉じる"
++      "closeSidebar": "サイドバーを閉じる",
++      "resizeSidebar": "サイドバーの幅を変更"
+     }
+   }
+ }
+diff --git a/src/modules/i18n/locales/ko/common.json b/src/modules/i18n/locales/ko/common.json
+index ed3f5922..446f29fa 100644
+--- a/src/modules/i18n/locales/ko/common.json
++++ b/src/modules/i18n/locales/ko/common.json
+@@ -264,7 +264,8 @@
+       "showSidebar": "사이드바 표시",
+       "settings": "설정",
+       "updateAvailable": "업데이트 가능",
+-      "closeSidebar": "사이드바 닫기"
++      "closeSidebar": "사이드바 닫기",
++      "resizeSidebar": "사이드바 크기 조절"
+     }
+   }
+ }
+diff --git a/src/modules/i18n/locales/ru/common.json b/src/modules/i18n/locales/ru/common.json
+index bb501428..b5d83434 100644
+--- a/src/modules/i18n/locales/ru/common.json
++++ b/src/modules/i18n/locales/ru/common.json
+@@ -234,7 +234,8 @@
+       "showSidebar": "Показать боковую панель",
+       "settings": "Настройки",
+       "updateAvailable": "Доступно обновление",
+-      "closeSidebar": "Закрыть боковую панель"
++      "closeSidebar": "Закрыть боковую панель",
++      "resizeSidebar": "Изменить ширину боковой панели"
+     }
+   }
+ }
+diff --git a/src/modules/i18n/locales/tr/common.json b/src/modules/i18n/locales/tr/common.json
+index 76412c36..6bbeda71 100644
+--- a/src/modules/i18n/locales/tr/common.json
++++ b/src/modules/i18n/locales/tr/common.json
+@@ -264,7 +264,8 @@
+       "showSidebar": "Kenar çubuğunu göster",
+       "settings": "Ayarlar",
+       "updateAvailable": "Güncelleme mevcut",
+-      "closeSidebar": "Kenar çubuğunu kapat"
++      "closeSidebar": "Kenar çubuğunu kapat",
++      "resizeSidebar": "Kenar çubuğunu yeniden boyutlandır"
+     }
+   }
+ }
+diff --git a/src/modules/i18n/locales/zh-CN/common.json b/src/modules/i18n/locales/zh-CN/common.json
+index 0c33ff7e..54f6afcc 100644
+--- a/src/modules/i18n/locales/zh-CN/common.json
++++ b/src/modules/i18n/locales/zh-CN/common.json
+@@ -264,7 +264,8 @@
+       "showSidebar": "显示侧边栏",
+       "settings": "设置",
+       "updateAvailable": "有可用更新",
+-      "closeSidebar": "关闭侧边栏"
++      "closeSidebar": "关闭侧边栏",
++      "resizeSidebar": "调整侧边栏宽度"
+     }
+   }
+ }
+diff --git a/src/modules/i18n/locales/zh-TW/common.json b/src/modules/i18n/locales/zh-TW/common.json
+index 21e425f6..ba947151 100644
+--- a/src/modules/i18n/locales/zh-TW/common.json
++++ b/src/modules/i18n/locales/zh-TW/common.json
+@@ -264,7 +264,8 @@
+       "showSidebar": "顯示側邊欄",
+       "settings": "設定",
+       "updateAvailable": "有可用更新",
+-      "closeSidebar": "關閉側邊欄"
++      "closeSidebar": "關閉側邊欄",
++      "resizeSidebar": "調整側邊欄寬度"
+     }
+   }
+ }
+diff --git a/src/modules/project-workspace/ProjectSidebarRegion.tsx b/src/modules/project-workspace/ProjectSidebarRegion.tsx
+index 266985fd..f0b26076 100644
+--- a/src/modules/project-workspace/ProjectSidebarRegion.tsx
++++ b/src/modules/project-workspace/ProjectSidebarRegion.tsx
+@@ -1,12 +1,20 @@
+-import { memo, useCallback } from 'react';
++import { memo, useCallback, useEffect, useRef } from 'react';
+ import type {
++  KeyboardEvent as ReactKeyboardEvent,
+   MouseEvent as ReactMouseEvent,
++  PointerEvent as ReactPointerEvent,
+   TouchEvent as ReactTouchEvent,
+ } from 'react';
  import { useTranslation } from 'react-i18next';
  
-@@ -12,6 +12,12 @@ import { useDeviceSettings } from '../../hooks/useDeviceSettings';
- import { useSessionProtection } from '../../hooks/useSessionProtection';
- import { useProjectsState } from '../../hooks/useProjectsState';
- import { useQueuedMessageAutoSend } from '../../hooks/useQueuedMessageAutoSend';
+ import { useProjectSidebarState } from '@/modules/project-workspace/context/ProjectsStateContext';
+ import { Sidebar } from '@/modules/sidebar';
 +import {
 +  SIDEBAR_WIDTH_KEYBOARD_STEP,
 +  SIDEBAR_WIDTH_MAX,
 +  SIDEBAR_WIDTH_MIN,
 +  useSidebarWidth,
-+} from '../../hooks/useSidebarWidth';
- import { api } from '../../utils/api';
++} from '@/shared/hooks/useSidebarWidth';
+ import type { ProjectWorkspaceShellProps } from '@/shared/types';
  
- type RunningSessionApiItem = {
-@@ -54,6 +60,11 @@ function AppContentInner() {
+ /** Rendered by ProjectWorkspaceShell to host the sidebar module, docked on desktop and as a drawer on mobile. */
+@@ -15,6 +23,11 @@ function ProjectSidebarRegion({
+ }: Pick<ProjectWorkspaceShellProps, 'isMobile'>) {
    const { t } = useTranslation('common');
-   const { isMobile } = useDeviceSettings({ trackPWA: false });
-   const { ws, sendMessage, subscribe } = useWebSocket();
+   const { sidebarOpen, setSidebarOpen, sidebarSharedProps } = useProjectSidebarState();
 +  const { width: sidebarWidth, setWidth: setSidebarWidth, resetWidth: resetSidebarWidth } = useSidebarWidth();
 +  // Drag origin; null while no resize is in progress.
 +  const resizeOriginRef = useRef<{ pointerX: number; width: number } | null>(null);
 +  const resizeFrameRef = useRef<number | null>(null);
 +  const pendingWidthRef = useRef<number>(sidebarWidth);
  
-   const {
-     processingSessions,
-@@ -204,11 +215,84 @@ function AppContentInner() {
-     return () => vv.removeEventListener('resize', update);
-   }, []);
+   const handleBackdropClick = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
+     event.stopPropagation();
+@@ -27,10 +40,83 @@ function ProjectSidebarRegion({
+     setSidebarOpen(false);
+   }, [setSidebarOpen]);
  
 +  // Sidebar resizing (desktop only). Pointer capture keeps the drag alive when
 +  // the cursor leaves the 4px handle, and the width is only written to storage
 +  // once the pointer is released.
-+  const handleResizeStart = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
++  const handleResizeStart = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
 +    event.preventDefault();
 +    event.currentTarget.setPointerCapture(event.pointerId);
 +    resizeOriginRef.current = { pointerX: event.clientX, width: sidebarWidth };
@@ -82,7 +239,7 @@ index 5d3b428..206b12d 100644
 +    document.body.style.userSelect = 'none';
 +  }, [sidebarWidth]);
 +
-+  const handleResizeMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
++  const handleResizeMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
 +    const origin = resizeOriginRef.current;
 +    if (!origin) return;
 +
@@ -94,7 +251,7 @@ index 5d3b428..206b12d 100644
 +    });
 +  }, [setSidebarWidth]);
 +
-+  const handleResizeEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
++  const handleResizeEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
 +    if (!resizeOriginRef.current) return;
 +    resizeOriginRef.current = null;
 +
@@ -109,7 +266,7 @@ index 5d3b428..206b12d 100644
 +    setSidebarWidth(pendingWidthRef.current);
 +  }, [setSidebarWidth]);
 +
-+  const handleResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
++  const handleResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
 +    if (event.key === 'ArrowLeft') {
 +      event.preventDefault();
 +      setSidebarWidth(sidebarWidth - SIDEBAR_WIDTH_KEYBOARD_STEP);
@@ -128,36 +285,35 @@ index 5d3b428..206b12d 100644
 +    document.body.style.userSelect = '';
 +  }, []);
 +
-   return (
-     <div className="fixed inset-0 flex bg-background" style={{ bottom: 'var(--keyboard-height, 0px)' }}>
-       {!isMobile ? (
--        <div className="h-full flex-shrink-0 border-r border-border/50">
-+        <div className="relative h-full flex-shrink-0 border-r border-border/50" style={{ width: sidebarWidth }}>
-           <Sidebar {...sidebarSharedProps} />
-+          <div
-+            role="separator"
-+            aria-orientation="vertical"
-+            aria-label={t('versionUpdate.ariaLabels.resizeSidebar')}
-+            aria-valuenow={sidebarWidth}
-+            aria-valuemin={SIDEBAR_WIDTH_MIN}
-+            aria-valuemax={SIDEBAR_WIDTH_MAX}
-+            tabIndex={0}
-+            className="absolute inset-y-0 -right-0.5 z-10 w-1 cursor-col-resize hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:outline-none"
-+            onPointerDown={handleResizeStart}
-+            onPointerMove={handleResizeMove}
-+            onPointerUp={handleResizeEnd}
-+            onPointerCancel={handleResizeEnd}
-+            onDoubleClick={resetSidebarWidth}
-+            onKeyDown={handleResizeKeyDown}
-+          />
-         </div>
-       ) : (
-         <div
-diff --git a/src/components/sidebar/view/subcomponents/SidebarContent.tsx b/src/components/sidebar/view/subcomponents/SidebarContent.tsx
-index 8dd9f74..ee77a84 100644
---- a/src/components/sidebar/view/subcomponents/SidebarContent.tsx
-+++ b/src/components/sidebar/view/subcomponents/SidebarContent.tsx
-@@ -192,7 +192,7 @@ export default function SidebarContent({
+   if (!isMobile) {
+     return (
+-      <div className="h-full flex-shrink-0 border-r border-border/50">
++      <div className="relative h-full flex-shrink-0 border-r border-border/50" style={{ width: sidebarWidth }}>
+         <Sidebar {...sidebarSharedProps} />
++        <div
++          role="separator"
++          aria-orientation="vertical"
++          aria-label={t('versionUpdate.ariaLabels.resizeSidebar')}
++          aria-valuenow={sidebarWidth}
++          aria-valuemin={SIDEBAR_WIDTH_MIN}
++          aria-valuemax={SIDEBAR_WIDTH_MAX}
++          tabIndex={0}
++          className="absolute inset-y-0 -right-0.5 z-10 w-1 cursor-col-resize hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:outline-none"
++          onPointerDown={handleResizeStart}
++          onPointerMove={handleResizeMove}
++          onPointerUp={handleResizeEnd}
++          onPointerCancel={handleResizeEnd}
++          onDoubleClick={resetSidebarWidth}
++          onKeyDown={handleResizeKeyDown}
++        />
+       </div>
+     );
+   }
+diff --git a/src/modules/sidebar/SidebarContent.tsx b/src/modules/sidebar/SidebarContent.tsx
+index b14998bc..64a7e3b3 100644
+--- a/src/modules/sidebar/SidebarContent.tsx
++++ b/src/modules/sidebar/SidebarContent.tsx
+@@ -186,7 +186,7 @@ export default function SidebarContent({
  
    return (
      <div
@@ -166,47 +322,11 @@ index 8dd9f74..ee77a84 100644
        style={{}}
      >
        <SidebarHeader
-diff --git a/src/hooks/useSidebarWidth.test.ts b/src/hooks/useSidebarWidth.test.ts
+diff --git a/src/shared/hooks/useSidebarWidth.ts b/src/shared/hooks/useSidebarWidth.ts
 new file mode 100644
-index 0000000..52c72ca
+index 00000000..45f3479d
 --- /dev/null
-+++ b/src/hooks/useSidebarWidth.test.ts
-@@ -0,0 +1,30 @@
-+import assert from 'node:assert/strict';
-+import test from 'node:test';
-+
-+import {
-+  SIDEBAR_WIDTH_DEFAULT,
-+  SIDEBAR_WIDTH_MAX,
-+  SIDEBAR_WIDTH_MIN,
-+  clampSidebarWidth,
-+  parseSidebarWidth,
-+} from './useSidebarWidth';
-+
-+test('the sidebar width is clamped to the supported range', () => {
-+  assert.equal(clampSidebarWidth(SIDEBAR_WIDTH_MIN - 100), SIDEBAR_WIDTH_MIN);
-+  assert.equal(clampSidebarWidth(SIDEBAR_WIDTH_MAX + 100), SIDEBAR_WIDTH_MAX);
-+  assert.equal(clampSidebarWidth(320), 320);
-+  assert.equal(clampSidebarWidth(320.6), 321);
-+});
-+
-+test('a stored width is restored, and a broken one falls back to the default', () => {
-+  assert.equal(parseSidebarWidth('420'), 420);
-+  assert.equal(parseSidebarWidth('9999'), SIDEBAR_WIDTH_MAX);
-+  assert.equal(parseSidebarWidth('10'), SIDEBAR_WIDTH_MIN);
-+  assert.equal(parseSidebarWidth(null), SIDEBAR_WIDTH_DEFAULT);
-+  assert.equal(parseSidebarWidth('wide, please'), SIDEBAR_WIDTH_DEFAULT);
-+  assert.equal(parseSidebarWidth(undefined), SIDEBAR_WIDTH_DEFAULT);
-+});
-+
-+test('the default width matches the previous fixed sidebar', () => {
-+  assert.equal(SIDEBAR_WIDTH_DEFAULT, 288); // md:w-72
-+});
-diff --git a/src/hooks/useSidebarWidth.ts b/src/hooks/useSidebarWidth.ts
-new file mode 100644
-index 0000000..45f3479
---- /dev/null
-+++ b/src/hooks/useSidebarWidth.ts
++++ b/src/shared/hooks/useSidebarWidth.ts
 @@ -0,0 +1,60 @@
 +import { useCallback, useEffect, useState } from 'react';
 +
@@ -268,160 +388,1056 @@ index 0000000..45f3479
 +
 +  return { width, setWidth, resetWidth };
 +}
-diff --git a/src/i18n/locales/de/common.json b/src/i18n/locales/de/common.json
-index da18a66..5c6f299 100644
---- a/src/i18n/locales/de/common.json
-+++ b/src/i18n/locales/de/common.json
-@@ -234,7 +234,8 @@
-       "showSidebar": "Seitenleiste anzeigen",
-       "settings": "Einstellungen",
-       "updateAvailable": "Update verfügbar",
--      "closeSidebar": "Seitenleiste schließen"
-+      "closeSidebar": "Seitenleiste schließen",
-+      "resizeSidebar": "Seitenleistenbreite ändern"
+diff --git a/src/shared/tests/useSidebarWidth.test.ts b/src/shared/tests/useSidebarWidth.test.ts
+new file mode 100644
+index 00000000..f17e257d
+--- /dev/null
++++ b/src/shared/tests/useSidebarWidth.test.ts
+@@ -0,0 +1,31 @@
++import assert from 'node:assert/strict';
++
++import { test } from 'vitest';
++
++import {
++  SIDEBAR_WIDTH_DEFAULT,
++  SIDEBAR_WIDTH_MAX,
++  SIDEBAR_WIDTH_MIN,
++  clampSidebarWidth,
++  parseSidebarWidth,
++} from '@/shared/hooks/useSidebarWidth';
++
++test('the sidebar width is clamped to the supported range', () => {
++  assert.equal(clampSidebarWidth(SIDEBAR_WIDTH_MIN - 100), SIDEBAR_WIDTH_MIN);
++  assert.equal(clampSidebarWidth(SIDEBAR_WIDTH_MAX + 100), SIDEBAR_WIDTH_MAX);
++  assert.equal(clampSidebarWidth(320), 320);
++  assert.equal(clampSidebarWidth(320.6), 321);
++});
++
++test('a stored width is restored, and a broken one falls back to the default', () => {
++  assert.equal(parseSidebarWidth('420'), 420);
++  assert.equal(parseSidebarWidth('9999'), SIDEBAR_WIDTH_MAX);
++  assert.equal(parseSidebarWidth('10'), SIDEBAR_WIDTH_MIN);
++  assert.equal(parseSidebarWidth(null), SIDEBAR_WIDTH_DEFAULT);
++  assert.equal(parseSidebarWidth('wide, please'), SIDEBAR_WIDTH_DEFAULT);
++  assert.equal(parseSidebarWidth(undefined), SIDEBAR_WIDTH_DEFAULT);
++});
++
++test('the default width matches the previous fixed sidebar', () => {
++  assert.equal(SIDEBAR_WIDTH_DEFAULT, 288); // md:w-72
++});
+-- 
+2.55.0
+
+
+From df342846aeffbfbce3bebbf18a319b0ddb9ab550 Mon Sep 17 00:00:00 2001
+From: bvn13 <from.github@bvn13.me>
+Date: Sun, 23 Aug 2026 10:51:08 +0300
+Subject: [PATCH 2/4] fix(sidebar): end an in-flight resize when the layout
+ goes mobile
+
+The separator only ends a drag through its own pointerup/pointercancel.
+When isMobile flips mid-drag the desktop branch unmounts it while
+AppContentInner stays mounted, so that never fires: the body keeps
+userSelect: none, a queued frame stays queued, and the live resize origin
+makes a plain hover over the remounted handle resize the sidebar once the
+desktop layout returns. An [isMobile] effect ends the drag instead; the
+unmount cleanup stays for the case it already covered.
+
+parseSidebarWidth used parseInt, which takes a numeric prefix, so a stored
+'320px' resolved to 320 rather than the default its docstring promises.
+
+Raised by CodeRabbit on PR #1189.
+---
+ .../project-workspace/ProjectSidebarRegion.tsx      | 13 +++++++++++++
+ src/shared/hooks/useSidebarWidth.ts                 |  3 ++-
+ src/shared/tests/useSidebarWidth.test.ts            |  3 +++
+ 3 files changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/src/modules/project-workspace/ProjectSidebarRegion.tsx b/src/modules/project-workspace/ProjectSidebarRegion.tsx
+index f0b26076..3e700169 100644
+--- a/src/modules/project-workspace/ProjectSidebarRegion.tsx
++++ b/src/modules/project-workspace/ProjectSidebarRegion.tsx
+@@ -91,6 +91,19 @@ function ProjectSidebarRegion({
      }
-   }
- }
-diff --git a/src/i18n/locales/en/common.json b/src/i18n/locales/en/common.json
-index aeb5099..785bbb7 100644
---- a/src/i18n/locales/en/common.json
-+++ b/src/i18n/locales/en/common.json
-@@ -265,7 +265,8 @@
-       "showSidebar": "Show sidebar",
-       "settings": "Settings",
-       "updateAvailable": "Update available",
--      "closeSidebar": "Close sidebar"
-+      "closeSidebar": "Close sidebar",
-+      "resizeSidebar": "Resize sidebar"
+   }, [resetSidebarWidth, setSidebarWidth, sidebarWidth]);
+ 
++  // Going mobile mid-drag unmounts the separator, so the pointerup that would have
++  // ended the drag never arrives: the body stays unselectable, and the live origin
++  // would make a plain hover resize the sidebar once the desktop layout returns.
++  useEffect(() => {
++    if (!isMobile) return;
++    resizeOriginRef.current = null;
++    if (resizeFrameRef.current !== null) {
++      window.cancelAnimationFrame(resizeFrameRef.current);
++      resizeFrameRef.current = null;
++    }
++    document.body.style.userSelect = '';
++  }, [isMobile]);
++
+   // A drag interrupted by an unmount must not leave the page unselectable.
+   useEffect(() => () => {
+     if (resizeFrameRef.current !== null) window.cancelAnimationFrame(resizeFrameRef.current);
+diff --git a/src/shared/hooks/useSidebarWidth.ts b/src/shared/hooks/useSidebarWidth.ts
+index 45f3479d..ddb24d6d 100644
+--- a/src/shared/hooks/useSidebarWidth.ts
++++ b/src/shared/hooks/useSidebarWidth.ts
+@@ -11,7 +11,8 @@ export const clampSidebarWidth = (value: number): number =>
+ 
+ /** A stored width that is missing, unparseable or out of range falls back to the default. */
+ export const parseSidebarWidth = (raw: unknown): number => {
+-  const value = typeof raw === 'string' ? Number.parseInt(raw, 10) : Number.NaN;
++  // Number(), not parseInt(): the latter takes a numeric prefix, so '320px' would pass.
++  const value = typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : Number.NaN;
+   return Number.isFinite(value) ? clampSidebarWidth(value) : SIDEBAR_WIDTH_DEFAULT;
+ };
+ 
+diff --git a/src/shared/tests/useSidebarWidth.test.ts b/src/shared/tests/useSidebarWidth.test.ts
+index f17e257d..f7d17642 100644
+--- a/src/shared/tests/useSidebarWidth.test.ts
++++ b/src/shared/tests/useSidebarWidth.test.ts
+@@ -24,6 +24,9 @@ test('a stored width is restored, and a broken one falls back to the default', (
+   assert.equal(parseSidebarWidth(null), SIDEBAR_WIDTH_DEFAULT);
+   assert.equal(parseSidebarWidth('wide, please'), SIDEBAR_WIDTH_DEFAULT);
+   assert.equal(parseSidebarWidth(undefined), SIDEBAR_WIDTH_DEFAULT);
++  // A numeric prefix is not a width: '320px' is as broken as 'wide, please'.
++  assert.equal(parseSidebarWidth('320px'), SIDEBAR_WIDTH_DEFAULT);
++  assert.equal(parseSidebarWidth(''), SIDEBAR_WIDTH_DEFAULT);
+ });
+ 
+ test('the default width matches the previous fixed sidebar', () => {
+-- 
+2.55.0
+
+
+From 2fdbba392f61e67bb5a58a424f171805b5c21069 Mon Sep 17 00:00:00 2001
+From: bvn13 <from.github@bvn13.me>
+Date: Thu, 17 Sep 2026 12:30:49 +0300
+Subject: [PATCH 3/4] fix(sidebar): collapse the section tabs that no longer
+ fit into a dropdown
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The section strip was written for a fixed 288px sidebar: four tabs in a flex
+row, two of them growing. Once the sidebar became resizable, dragging it
+towards its 220px minimum pushed Conversations and the two icon tabs out over
+the panel edge instead of shrinking the row.
+
+The strip now measures itself and keeps only the tabs it has room for; the rest
+move into a "…" dropdown at its right edge. The widths come from an off-layout
+copy of the full strip, because a tab that has already been dropped is no
+longer in the row to measure, and a ResizeObserver re-runs the split while the
+sidebar is dragged.
+
+The tab of the section on screen is always kept in the row, even when it is the
+one that would have fallen past the fold, so the strip still shows where you
+are.
+
+The desktop and mobile headers carried two near-identical copies of the markup
+and now share SidebarModeTabs. The only behaviour that differed was a mobile-only
+screen-reader label on Running; both headers now label every icon-only tab.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+---
+ src/modules/i18n/locales/de/sidebar.json      |   1 +
+ src/modules/i18n/locales/en/sidebar.json      |   1 +
+ src/modules/i18n/locales/es/sidebar.json      |   1 +
+ src/modules/i18n/locales/fr/sidebar.json      |   1 +
+ src/modules/i18n/locales/id/sidebar.json      |   1 +
+ src/modules/i18n/locales/it/sidebar.json      |   1 +
+ src/modules/i18n/locales/ko/sidebar.json      |   1 +
+ src/modules/i18n/locales/ru/sidebar.json      |   1 +
+ src/modules/i18n/locales/tr/sidebar.json      |   1 +
+ src/modules/i18n/locales/zh-CN/sidebar.json   |   1 +
+ src/modules/i18n/locales/zh-TW/sidebar.json   |   1 +
+ src/modules/sidebar/SidebarHeader.tsx         | 155 ++----------------
+ src/modules/sidebar/SidebarModeTabs.tsx       | 138 ++++++++++++++++
+ src/modules/sidebar/hooks/useTabOverflow.ts   | 128 +++++++++++++++
+ .../sidebar/tests/sidebarModeTabs.test.tsx    |  84 ++++++++++
+ src/modules/sidebar/tests/tabOverflow.test.ts |  57 +++++++
+ 16 files changed, 434 insertions(+), 139 deletions(-)
+ create mode 100644 src/modules/sidebar/SidebarModeTabs.tsx
+ create mode 100644 src/modules/sidebar/hooks/useTabOverflow.ts
+ create mode 100644 src/modules/sidebar/tests/sidebarModeTabs.test.tsx
+ create mode 100644 src/modules/sidebar/tests/tabOverflow.test.ts
+
+diff --git a/src/modules/i18n/locales/de/sidebar.json b/src/modules/i18n/locales/de/sidebar.json
+index b0343454..6c25e709 100644
+--- a/src/modules/i18n/locales/de/sidebar.json
++++ b/src/modules/i18n/locales/de/sidebar.json
+@@ -123,6 +123,7 @@
+   "search": {
+     "modeProjects": "Projekte",
+     "modeConversations": "Unterhaltungen",
++    "modeMore": "Mehr",
+     "conversationsPlaceholder": "In Unterhaltungen suchen...",
+     "searching": "Sucht...",
+     "sessionTitles": "Sitzungstitel",
+diff --git a/src/modules/i18n/locales/en/sidebar.json b/src/modules/i18n/locales/en/sidebar.json
+index b38fadf4..8cc750c3 100644
+--- a/src/modules/i18n/locales/en/sidebar.json
++++ b/src/modules/i18n/locales/en/sidebar.json
+@@ -123,6 +123,7 @@
+   "search": {
+     "modeProjects": "Projects",
+     "modeConversations": "Conversations",
++    "modeMore": "More",
+     "conversationsPlaceholder": "Search in conversations...",
+     "searching": "Searching...",
+     "sessionTitles": "Session",
+diff --git a/src/modules/i18n/locales/es/sidebar.json b/src/modules/i18n/locales/es/sidebar.json
+index 245f69bf..b4bda19d 100644
+--- a/src/modules/i18n/locales/es/sidebar.json
++++ b/src/modules/i18n/locales/es/sidebar.json
+@@ -123,6 +123,7 @@
+   "search": {
+     "modeProjects": "Proyectos",
+     "modeConversations": "Conversaciones",
++    "modeMore": "Más",
+     "conversationsPlaceholder": "Buscar en conversaciones...",
+     "searching": "Buscando...",
+     "sessionTitles": "Títulos de sesiones",
+diff --git a/src/modules/i18n/locales/fr/sidebar.json b/src/modules/i18n/locales/fr/sidebar.json
+index a0bee160..31a6607f 100644
+--- a/src/modules/i18n/locales/fr/sidebar.json
++++ b/src/modules/i18n/locales/fr/sidebar.json
+@@ -123,6 +123,7 @@
+   "search": {
+     "modeProjects": "Projets",
+     "modeConversations": "Conversations",
++    "modeMore": "Plus",
+     "conversationsPlaceholder": "Rechercher dans les conversations...",
+     "searching": "Recherche en cours...",
+     "sessionTitles": "Titres des sessions",
+diff --git a/src/modules/i18n/locales/id/sidebar.json b/src/modules/i18n/locales/id/sidebar.json
+index 7ae19100..11c573c5 100644
+--- a/src/modules/i18n/locales/id/sidebar.json
++++ b/src/modules/i18n/locales/id/sidebar.json
+@@ -123,6 +123,7 @@
+   "search": {
+     "modeProjects": "Proyek",
+     "modeConversations": "Percakapan",
++    "modeMore": "Lainnya",
+     "conversationsPlaceholder": "Cari dalam percakapan...",
+     "searching": "Mencari...",
+     "sessionTitles": "Sesi",
+diff --git a/src/modules/i18n/locales/it/sidebar.json b/src/modules/i18n/locales/it/sidebar.json
+index 409a1672..4dde864b 100644
+--- a/src/modules/i18n/locales/it/sidebar.json
++++ b/src/modules/i18n/locales/it/sidebar.json
+@@ -123,6 +123,7 @@
+   "search": {
+     "modeProjects": "Progetti",
+     "modeConversations": "Conversazioni",
++    "modeMore": "Altro",
+     "conversationsPlaceholder": "Cerca nelle conversazioni...",
+     "searching": "Ricerca in corso...",
+     "sessionTitles": "Titoli delle sessioni",
+diff --git a/src/modules/i18n/locales/ko/sidebar.json b/src/modules/i18n/locales/ko/sidebar.json
+index 810e746d..909a15bb 100644
+--- a/src/modules/i18n/locales/ko/sidebar.json
++++ b/src/modules/i18n/locales/ko/sidebar.json
+@@ -123,6 +123,7 @@
+   "search": {
+     "modeProjects": "프로젝트",
+     "modeConversations": "대화",
++    "modeMore": "더 보기",
+     "conversationsPlaceholder": "대화 내용 검색...",
+     "searching": "검색 중...",
+     "sessionTitles": "세션 제목",
+diff --git a/src/modules/i18n/locales/ru/sidebar.json b/src/modules/i18n/locales/ru/sidebar.json
+index 3f1b13c8..93eebfa6 100644
+--- a/src/modules/i18n/locales/ru/sidebar.json
++++ b/src/modules/i18n/locales/ru/sidebar.json
+@@ -123,6 +123,7 @@
+   "search": {
+     "modeProjects": "Проекты",
+     "modeConversations": "Разговоры",
++    "modeMore": "Ещё",
+     "conversationsPlaceholder": "Поиск в разговорах...",
+     "searching": "Поиск...",
+     "sessionTitles": "Названия сеансов",
+diff --git a/src/modules/i18n/locales/tr/sidebar.json b/src/modules/i18n/locales/tr/sidebar.json
+index 90168826..2058e539 100644
+--- a/src/modules/i18n/locales/tr/sidebar.json
++++ b/src/modules/i18n/locales/tr/sidebar.json
+@@ -123,6 +123,7 @@
+   "search": {
+     "modeProjects": "Projeler",
+     "modeConversations": "Konuşmalar",
++    "modeMore": "Daha fazla",
+     "conversationsPlaceholder": "Konuşmalarda ara...",
+     "searching": "Aranıyor...",
+     "sessionTitles": "Oturum başlıkları",
+diff --git a/src/modules/i18n/locales/zh-CN/sidebar.json b/src/modules/i18n/locales/zh-CN/sidebar.json
+index 8c623b99..fce9858c 100644
+--- a/src/modules/i18n/locales/zh-CN/sidebar.json
++++ b/src/modules/i18n/locales/zh-CN/sidebar.json
+@@ -123,6 +123,7 @@
+   "search": {
+     "modeProjects": "项目",
+     "modeConversations": "对话",
++    "modeMore": "更多",
+     "conversationsPlaceholder": "搜索对话内容...",
+     "searching": "搜索中...",
+     "sessionTitles": "会话标题",
+diff --git a/src/modules/i18n/locales/zh-TW/sidebar.json b/src/modules/i18n/locales/zh-TW/sidebar.json
+index 86d6964d..5ae65eaa 100644
+--- a/src/modules/i18n/locales/zh-TW/sidebar.json
++++ b/src/modules/i18n/locales/zh-TW/sidebar.json
+@@ -122,6 +122,7 @@
+   "search": {
+     "modeProjects": "專案",
+     "modeConversations": "對話",
++    "modeMore": "更多",
+     "conversationsPlaceholder": "搜尋對話內容...",
+     "searching": "搜尋中...",
+     "sessionTitles": "工作階段標題",
+diff --git a/src/modules/sidebar/SidebarHeader.tsx b/src/modules/sidebar/SidebarHeader.tsx
+index b59bbac6..c4a593da 100644
+--- a/src/modules/sidebar/SidebarHeader.tsx
++++ b/src/modules/sidebar/SidebarHeader.tsx
+@@ -1,11 +1,12 @@
+-import { Activity, Archive, Folder, FolderPlus, MessageSquare, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
++import { FolderPlus, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
+ import type { TFunction } from 'i18next';
+ 
+-import { Button, Input, Tooltip } from '@/shared/ui';
++import { Button, Input } from '@/shared/ui';
+ import { CLOUDCLI_WORDMARK_FONT_FAMILY } from '@/shared/constants';
+-import { IS_PLATFORM,cn } from '@/shared/utils';
++import { IS_PLATFORM } from '@/shared/utils';
+ import type { SidebarSearchMode } from '@/shared/types';
+ import GitHubStarBadge from '@/modules/sidebar/GitHubStarBadge';
++import SidebarModeTabs from '@/modules/sidebar/SidebarModeTabs';
+ 
+ const MOD_KEY =
+   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
+@@ -77,7 +78,6 @@ export default function SidebarHeader({
+       : searchMode === 'running'
+         ? t('search.runningPlaceholder', 'Search running sessions...')
+         : t('projects.searchPlaceholder');
+-  const runningBadgeText = runningSessionsCount > 99 ? '99+' : String(runningSessionsCount);
+ 
+   return (
+     <div className="flex-shrink-0">
+@@ -141,73 +141,12 @@ export default function SidebarHeader({
+         {showSearchTools && (
+           <div className="mt-2.5 space-y-2">
+             {/* Search mode toggle */}
+-            <div className="flex rounded-lg bg-muted/50 p-0.5">
+-              <button
+-                onClick={() => onSearchModeChange('projects')}
+-                aria-pressed={searchMode === 'projects'}
+-                className={cn(
+-                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
+-                  searchMode === 'projects'
+-                    ? "bg-background shadow-sm text-foreground"
+-                    : "text-muted-foreground hover:text-foreground"
+-                )}
+-              >
+-                <Folder className="h-3 w-3" />
+-                {t('search.modeProjects')}
+-              </button>
+-              <button
+-                onClick={() => onSearchModeChange('conversations')}
+-                aria-pressed={searchMode === 'conversations'}
+-                className={cn(
+-                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
+-                  searchMode === 'conversations'
+-                    ? "bg-background shadow-sm text-foreground"
+-                    : "text-muted-foreground hover:text-foreground"
+-                )}
+-              >
+-                <MessageSquare className="h-3 w-3" />
+-                {t('search.modeConversations')}
+-              </button>
+-              <Tooltip content={t('search.runningTooltip', 'Running sessions')} position="top">
+-                <button
+-                  onClick={() => onSearchModeChange('running')}
+-                  aria-pressed={searchMode === 'running'}
+-                  aria-label={t('search.runningTooltip', 'Running sessions')}
+-                  title={t('search.runningTooltip', 'Running sessions')}
+-                  className={cn(
+-                    "flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
+-                    searchMode === 'running'
+-                      ? "bg-background shadow-sm text-foreground ring-1 ring-emerald-500/15"
+-                      : "text-muted-foreground hover:text-foreground"
+-                  )}
+-                >
+-                  <span className="relative flex h-3 w-3 items-center justify-center">
+-                    <Activity className={cn("h-3 w-3", runningSessionsCount > 0 && "text-emerald-500")} />
+-                    {runningSessionsCount > 0 && (
+-                      <span className="absolute -right-2.5 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[8px] font-semibold leading-none text-white shadow-sm ring-1 ring-background">
+-                        {runningBadgeText}
+-                      </span>
+-                    )}
+-                  </span>
+-                </button>
+-              </Tooltip>
+-              <Tooltip content={t('search.archiveOnlyTooltip', 'Archive only')} position="top">
+-                <button
+-                  onClick={() => onSearchModeChange('archived')}
+-                  aria-pressed={searchMode === 'archived'}
+-                  aria-label={t('search.archiveOnlyTooltip', 'Archive only')}
+-                  title={t('search.archiveOnlyTooltip', 'Archive only')}
+-                  className={cn(
+-                    "flex items-center justify-center rounded-md px-2.5 py-1.5 text-xs font-normal transition-all",
+-                    searchMode === 'archived'
+-                      ? "bg-background shadow-sm text-foreground"
+-                      : "text-muted-foreground hover:text-foreground"
+-                  )}
+-                >
+-                  <Archive className="h-3 w-3" />
+-                </button>
+-              </Tooltip>
+-            </div>
++            <SidebarModeTabs
++              searchMode={searchMode}
++              onSearchModeChange={onSearchModeChange}
++              runningSessionsCount={runningSessionsCount}
++              t={t}
++            />
+             <div className="relative">
+               <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
+               <Input
+@@ -281,74 +220,12 @@ export default function SidebarHeader({
+         {/* Mobile search */}
+         {showSearchTools && (
+           <div className="mt-2.5 space-y-2">
+-            <div className="flex rounded-lg bg-muted/50 p-0.5">
+-              <button
+-                onClick={() => onSearchModeChange('projects')}
+-                aria-pressed={searchMode === 'projects'}
+-                className={cn(
+-                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
+-                  searchMode === 'projects'
+-                    ? "bg-background shadow-sm text-foreground"
+-                    : "text-muted-foreground hover:text-foreground"
+-                )}
+-              >
+-                <Folder className="h-3 w-3" />
+-                {t('search.modeProjects')}
+-              </button>
+-              <button
+-                onClick={() => onSearchModeChange('conversations')}
+-                aria-pressed={searchMode === 'conversations'}
+-                className={cn(
+-                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
+-                  searchMode === 'conversations'
+-                    ? "bg-background shadow-sm text-foreground"
+-                    : "text-muted-foreground hover:text-foreground"
+-                )}
+-              >
+-                <MessageSquare className="h-3 w-3" />
+-                {t('search.modeConversations')}
+-              </button>
+-              <Tooltip content={t('search.runningTooltip', 'Running sessions')} position="top">
+-                <button
+-                  onClick={() => onSearchModeChange('running')}
+-                  aria-pressed={searchMode === 'running'}
+-                  aria-label={t('search.runningTooltip', 'Running sessions')}
+-                  title={t('search.runningTooltip', 'Running sessions')}
+-                  className={cn(
+-                    "flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
+-                    searchMode === 'running'
+-                      ? "bg-background shadow-sm text-foreground ring-1 ring-emerald-500/15"
+-                      : "text-muted-foreground hover:text-foreground"
+-                  )}
+-                >
+-                  <span className="relative flex h-3 w-3 items-center justify-center">
+-                    <Activity className={cn("h-3 w-3", runningSessionsCount > 0 && "text-emerald-500")} />
+-                    {runningSessionsCount > 0 && (
+-                      <span className="absolute -right-2.5 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[8px] font-semibold leading-none text-white shadow-sm ring-1 ring-background">
+-                        {runningBadgeText}
+-                      </span>
+-                    )}
+-                  </span>
+-                  <span className="sr-only">{t('search.modeRunning', 'Running')}</span>
+-                </button>
+-              </Tooltip>
+-              <Tooltip content={t('search.archiveOnlyTooltip', 'Archive only')} position="top">
+-                <button
+-                  onClick={() => onSearchModeChange('archived')}
+-                  aria-pressed={searchMode === 'archived'}
+-                  aria-label={t('search.archiveOnlyTooltip', 'Archive only')}
+-                  title={t('search.archiveOnlyTooltip', 'Archive only')}
+-                  className={cn(
+-                    "flex items-center justify-center rounded-md px-2.5 py-1.5 text-xs font-normal transition-all",
+-                    searchMode === 'archived'
+-                      ? "bg-background shadow-sm text-foreground"
+-                      : "text-muted-foreground hover:text-foreground"
+-                  )}
+-                >
+-                  <Archive className="h-3 w-3" />
+-                </button>
+-              </Tooltip>
+-            </div>
++            <SidebarModeTabs
++              searchMode={searchMode}
++              onSearchModeChange={onSearchModeChange}
++              runningSessionsCount={runningSessionsCount}
++              t={t}
++            />
+             <div className="relative">
+               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/50" />
+               <Input
+diff --git a/src/modules/sidebar/SidebarModeTabs.tsx b/src/modules/sidebar/SidebarModeTabs.tsx
+new file mode 100644
+index 00000000..52b863f3
+--- /dev/null
++++ b/src/modules/sidebar/SidebarModeTabs.tsx
+@@ -0,0 +1,138 @@
++import { Fragment } from 'react';
++import { Activity, Archive, Folder, MessageSquare, MoreHorizontal } from 'lucide-react';
++import type { LucideIcon } from 'lucide-react';
++import type { TFunction } from 'i18next';
++
++import { ActionMenu, Tooltip } from '@/shared/ui';
++import { cn } from '@/shared/utils';
++import type { SidebarSearchMode } from '@/shared/types';
++import { useTabOverflow } from '@/modules/sidebar/hooks/useTabOverflow';
++
++type ModeTab = {
++  mode: SidebarSearchMode;
++  /** The dropdown always shows this; the strip shows it only when `showLabel` is set. */
++  label: string;
++  icon: LucideIcon;
++  showLabel: boolean;
++};
++
++type SidebarModeTabsProps = {
++  searchMode: SidebarSearchMode;
++  onSearchModeChange: (mode: SidebarSearchMode) => void;
++  runningSessionsCount: number;
++  t: TFunction;
++};
++
++/**
++ * Used by SidebarHeader for the section strip above the search box, in both the
++ * desktop and the mobile header.
++ *
++ * The sidebar is resizable, so the strip cannot assume it has room for all four
++ * tabs: the ones that no longer fit move into a "…" dropdown at its right edge
++ * instead of spilling out over the panel.
++ */
++export default function SidebarModeTabs({
++  searchMode,
++  onSearchModeChange,
++  runningSessionsCount,
++  t,
++}: SidebarModeTabsProps) {
++  const tabs: ModeTab[] = [
++    { mode: 'projects', label: t('search.modeProjects'), icon: Folder, showLabel: true },
++    { mode: 'conversations', label: t('search.modeConversations'), icon: MessageSquare, showLabel: true },
++    { mode: 'running', label: t('search.runningTooltip', 'Running sessions'), icon: Activity, showLabel: false },
++    { mode: 'archived', label: t('search.archiveOnlyTooltip', 'Archive only'), icon: Archive, showLabel: false },
++  ];
++
++  const activeIndex = tabs.findIndex((tab) => tab.mode === searchMode);
++  const { rowRef, mirrorRef, visibleIndexes } = useTabOverflow(tabs.length, activeIndex);
++  const hiddenTabs = tabs.filter((_, index) => !visibleIndexes.includes(index));
++  const runningBadgeText = runningSessionsCount > 99 ? '99+' : String(runningSessionsCount);
++  const moreLabel = t('search.modeMore', 'More');
++
++  const renderTab = (tab: ModeTab, canGrow: boolean) => {
++    const isActive = tab.mode === searchMode;
++    const Icon = tab.icon;
++
++    const button = (
++      <button
++        onClick={() => onSearchModeChange(tab.mode)}
++        aria-pressed={isActive}
++        aria-label={tab.showLabel ? undefined : tab.label}
++        title={tab.showLabel ? undefined : tab.label}
++        className={cn(
++          'flex min-w-0 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all',
++          tab.mode === 'archived' && 'px-2.5',
++          canGrow && tab.showLabel && 'flex-1',
++          isActive
++            ? 'bg-background text-foreground shadow-sm'
++            : 'text-muted-foreground hover:text-foreground',
++          isActive && tab.mode === 'running' && 'ring-1 ring-emerald-500/15',
++        )}
++      >
++        {tab.mode === 'running' ? (
++          <span className="relative flex h-3 w-3 items-center justify-center">
++            <Activity className={cn('h-3 w-3', runningSessionsCount > 0 && 'text-emerald-500')} />
++            {runningSessionsCount > 0 && (
++              <span className="absolute -right-2.5 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[8px] font-semibold leading-none text-white shadow-sm ring-1 ring-background">
++                {runningBadgeText}
++              </span>
++            )}
++          </span>
++        ) : (
++          <Icon className="h-3 w-3" />
++        )}
++        {tab.showLabel && <span className="truncate">{tab.label}</span>}
++      </button>
++    );
++
++    // The labelled tabs say what they are; the icon-only ones need the tooltip.
++    return tab.showLabel ? button : <Tooltip content={tab.label} position="top">{button}</Tooltip>;
++  };
++
++  const overflowTrigger = (
++    <ActionMenu
++      label={moreLabel}
++      ariaLabel={moreLabel}
++      icon={MoreHorizontal}
++      iconOnly
++      portal
++      variant="ghost"
++      size="sm"
++      className="flex-none"
++      triggerClassName="h-auto rounded-md px-2 py-1.5 text-muted-foreground hover:bg-transparent hover:text-foreground [&_svg]:size-3.5"
++      items={hiddenTabs.map((tab) => ({
++        key: tab.mode,
++        label: tab.label,
++        icon: tab.icon,
++        onSelect: () => onSearchModeChange(tab.mode),
++      }))}
++    />
++  );
++
++  return (
++    <div className="rounded-lg bg-muted/50 p-0.5">
++      <div ref={rowRef} className="relative flex">
++        {visibleIndexes.map((index) => (
++          <Fragment key={tabs[index].mode}>{renderTab(tabs[index], true)}</Fragment>
++        ))}
++        {hiddenTabs.length > 0 && overflowTrigger}
++
++        {/*
++          An off-layout copy of the whole strip. What to drop can only be decided
++          from every tab's natural width, and a tab that has already been dropped
++          is no longer in the row to measure. Clipped rather than merely hidden so
++          it cannot widen an ancestor's scroll area.
++        */}
++        <div aria-hidden className="pointer-events-none invisible absolute inset-0 overflow-hidden">
++          <div ref={mirrorRef} className="flex w-max">
++            {tabs.map((tab) => (
++              <div key={tab.mode} className="flex-none">{renderTab(tab, false)}</div>
++            ))}
++            <div className="flex-none">{overflowTrigger}</div>
++          </div>
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/src/modules/sidebar/hooks/useTabOverflow.ts b/src/modules/sidebar/hooks/useTabOverflow.ts
+new file mode 100644
+index 00000000..3321dfe7
+--- /dev/null
++++ b/src/modules/sidebar/hooks/useTabOverflow.ts
+@@ -0,0 +1,128 @@
++import { useCallback, useLayoutEffect, useRef, useState } from 'react';
++
++/**
++ * Sub-pixel slack. Widths come from getBoundingClientRect, so a strip that fits
++ * exactly can still measure a hundredth of a pixel wider than its container.
++ */
++const FIT_EPSILON = 0.5;
++
++type TabFitInput = {
++  /** Natural width of every tab, in row order. */
++  widths: number[];
++  /** Natural width of the overflow trigger, which takes the place of the dropped tabs. */
++  triggerWidth: number;
++  /** Width the row has to lay the tabs out in. */
++  available: number;
++  /** The tab that must stay in the row, or -1 when none is active. */
++  activeIndex: number;
++};
++
++/**
++ * The tabs the row keeps, in row order. Tabs are kept from the left and the
++ * active one is always kept, so the strip still shows which section is on
++ * screen even when that section's tab would have fallen past the fold.
++ */
++export function fitTabsInRow({ widths, triggerWidth, available, activeIndex }: TabFitInput): number[] {
++  const everyIndex = widths.map((_, index) => index);
++  const total = widths.reduce((sum, width) => sum + width, 0);
++  if (total <= available + FIT_EPSILON) {
++    return everyIndex;
++  }
++
++  const hasActive = activeIndex >= 0 && activeIndex < widths.length;
++  const budget = available - triggerWidth - (hasActive ? widths[activeIndex] : 0);
++
++  const kept: number[] = [];
++  let used = 0;
++  for (const index of everyIndex) {
++    if (index === activeIndex) {
++      continue;
++    }
++    // Stop at the first tab that does not fit rather than skipping over it to a
++    // narrower one: the strip reads as a left-to-right list, and a hole in the
++    // middle of that list looks like a bug.
++    if (used + widths[index] > budget + FIT_EPSILON) {
++      break;
++    }
++    used += widths[index];
++    kept.push(index);
++  }
++
++  if (hasActive) {
++    kept.push(activeIndex);
++    kept.sort((first, second) => first - second);
++  }
++  return kept;
++}
++
++const isSameIndexes = (first: number[], second: number[]) =>
++  first.length === second.length && first.every((index, position) => index === second[position]);
++
++/**
++ * Splits a tab strip into the tabs that fit and the tabs that do not.
++ *
++ * `rowRef` goes on the element the tabs must fit into and `mirrorRef` on an
++ * off-layout copy of the full strip: once a tab has been dropped it is no
++ * longer in the row to be measured, so the natural widths have to come from
++ * somewhere that always renders all of them.
++ */
++export function useTabOverflow(tabCount: number, activeIndex: number) {
++  const rowRef = useRef<HTMLDivElement | null>(null);
++  const mirrorRef = useRef<HTMLDivElement | null>(null);
++  // The tabs the row has room for. It can only be measured from a laid-out DOM,
++  // so it starts as "all of them" and the first layout pass corrects it.
++  const [visibleIndexes, setVisibleIndexes] = useState<number[]>(() =>
++    Array.from({ length: tabCount }, (_, index) => index),
++  );
++
++  const measure = useCallback(() => {
++    const row = rowRef.current;
++    const mirror = mirrorRef.current;
++    if (!row || !mirror) {
++      return;
++    }
++
++    const measured = Array.from(mirror.children, (child) => child.getBoundingClientRect().width);
++    // The mirror holds every tab plus the overflow trigger. A different count
++    // means it is mid-render and the widths cannot be trusted yet.
++    if (measured.length !== tabCount + 1) {
++      return;
++    }
++
++    const available = row.getBoundingClientRect().width;
++    // The header renders a desktop and a mobile copy of the strip and hides one
++    // of them with `display: none`. The hidden copy measures zero — keep its
++    // last layout rather than collapsing every tab into the dropdown.
++    if (available <= 0) {
++      return;
++    }
++
++    const next = fitTabsInRow({
++      widths: measured.slice(0, tabCount),
++      triggerWidth: measured[tabCount],
++      available,
++      activeIndex,
++    });
++    setVisibleIndexes((current) => (isSameIndexes(current, next) ? current : next));
++  }, [tabCount, activeIndex]);
++
++  useLayoutEffect(() => {
++    measure();
++
++    const row = rowRef.current;
++    const mirror = mirrorRef.current;
++    if (!row || !mirror || typeof ResizeObserver === 'undefined') {
++      return;
++    }
++
++    // The row changes width while the sidebar is dragged; the mirror changes
++    // when the tabs themselves do — a language switch, or the running-session
++    // badge appearing next to the Activity icon.
++    const observer = new ResizeObserver(() => measure());
++    observer.observe(row);
++    observer.observe(mirror);
++    return () => observer.disconnect();
++  }, [measure]);
++
++  return { rowRef, mirrorRef, visibleIndexes };
++}
+diff --git a/src/modules/sidebar/tests/sidebarModeTabs.test.tsx b/src/modules/sidebar/tests/sidebarModeTabs.test.tsx
+new file mode 100644
+index 00000000..cf040477
+--- /dev/null
++++ b/src/modules/sidebar/tests/sidebarModeTabs.test.tsx
+@@ -0,0 +1,84 @@
++import assert from 'node:assert/strict';
++
++import { fireEvent, render, screen } from '@testing-library/react';
++import type { TFunction } from 'i18next';
++import { test, vi } from 'vitest';
++
++import type { SidebarSearchMode } from '@/shared/types';
++import SidebarModeTabs from '@/modules/sidebar/SidebarModeTabs';
++
++/**
++ * The strip has to survive a sidebar dragged down to its 220px minimum. jsdom
++ * does no layout, so widths are stubbed: the row reports the width under test
++ * and every other element a width derived from its label, which is enough for
++ * the component to split the tabs the way a browser would.
++ */
++
++const LABELS: Record<string, string> = {
++  'search.modeProjects': 'Projects',
++  'search.modeConversations': 'Conversations',
++  'search.runningTooltip': 'Running sessions',
++  'search.archiveOnlyTooltip': 'Archive only',
++  'search.modeMore': 'More',
++};
++
++const t = ((key: string, fallback?: string) => LABELS[key] ?? fallback ?? key) as unknown as TFunction;
++
++const stubLayout = (rowWidth: number) => {
++  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function measure(this: HTMLElement) {
++    // The row is the only `relative flex` element in the strip; the tabs are
++    // wrapped in `flex-none` and the menus in `relative inline-flex`.
++    const isRow = this.classList.contains('relative') && this.classList.contains('flex');
++    const width = isRow ? rowWidth : 34 + 7 * (this.textContent?.trim().length ?? 0);
++    return { width, height: 28, top: 0, left: 0, right: width, bottom: 28, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
++  });
++};
++
++const renderTabs = (rowWidth: number, searchMode: SidebarSearchMode) => {
++  stubLayout(rowWidth);
++  const changes: SidebarSearchMode[] = [];
++  render(
++    <SidebarModeTabs
++      searchMode={searchMode}
++      onSearchModeChange={(mode) => changes.push(mode)}
++      runningSessionsCount={0}
++      t={t}
++    />,
++  );
++  return changes;
++};
++
++test('a wide row shows every tab and no overflow menu', () => {
++  renderTabs(400, 'projects');
++
++  assert.ok(screen.getByRole('button', { name: 'Projects' }));
++  assert.ok(screen.getByRole('button', { name: 'Conversations' }));
++  assert.ok(screen.getByRole('button', { name: 'Running sessions' }));
++  assert.ok(screen.getByRole('button', { name: 'Archive only' }));
++  assert.equal(screen.queryByRole('button', { name: 'More' }), null);
++});
++
++test('a narrow row moves the tabs that no longer fit into the dropdown', () => {
++  const changes = renderTabs(220, 'projects');
++
++  assert.ok(screen.getByRole('button', { name: 'Projects' }));
++  assert.equal(screen.queryByRole('button', { name: 'Conversations' }), null);
++
++  fireEvent.click(screen.getByRole('button', { name: 'More' }));
++  assert.ok(screen.getByRole('menuitem', { name: 'Running sessions' }));
++  assert.ok(screen.getByRole('menuitem', { name: 'Archive only' }));
++
++  fireEvent.click(screen.getByRole('menuitem', { name: 'Conversations' }));
++  assert.deepEqual(changes, ['conversations']);
++});
++
++test('the section on screen keeps its place in the row', () => {
++  renderTabs(220, 'archived');
++
++  // Archive is the last tab and the first to be dropped on width alone, but it
++  // is the open section, so the strip has to keep showing it as pressed.
++  const archive = screen.getByRole('button', { name: 'Archive only' });
++  assert.equal(archive.getAttribute('aria-pressed'), 'true');
++  assert.equal(screen.queryByRole('button', { name: 'Conversations' }), null);
++  assert.ok(screen.getByRole('button', { name: 'More' }));
++});
+diff --git a/src/modules/sidebar/tests/tabOverflow.test.ts b/src/modules/sidebar/tests/tabOverflow.test.ts
+new file mode 100644
+index 00000000..204720d7
+--- /dev/null
++++ b/src/modules/sidebar/tests/tabOverflow.test.ts
+@@ -0,0 +1,57 @@
++import assert from 'node:assert/strict';
++
++import { test } from 'vitest';
++
++import { fitTabsInRow } from '@/modules/sidebar/hooks/useTabOverflow';
++
++/**
++ * The sidebar can be dragged down to 220px, which is narrower than the section
++ * strip. These cover what the strip keeps in the row at a given width; the
++ * measuring itself needs a laid-out DOM and is not exercised here.
++ */
++
++// Projects, Conversations, Running, Archive, roughly at their rendered widths.
++const WIDTHS = [88, 124, 30, 32];
++const TRIGGER_WIDTH = 30;
++
++test('keeps every tab when the row is wide enough', () => {
++  const visible = fitTabsInRow({ widths: WIDTHS, triggerWidth: TRIGGER_WIDTH, available: 300, activeIndex: 0 });
++
++  assert.deepEqual(visible, [0, 1, 2, 3]);
++});
++
++test('keeps a strip that fits to the pixel, and one that misses by a rounding error', () => {
++  const exact = fitTabsInRow({ widths: WIDTHS, triggerWidth: TRIGGER_WIDTH, available: 274, activeIndex: 0 });
++  const rounded = fitTabsInRow({ widths: WIDTHS, triggerWidth: TRIGGER_WIDTH, available: 273.8, activeIndex: 0 });
++
++  assert.deepEqual(exact, [0, 1, 2, 3]);
++  assert.deepEqual(rounded, [0, 1, 2, 3]);
++});
++
++test('drops the tabs past the fold, leaving room for the overflow trigger', () => {
++  const visible = fitTabsInRow({ widths: WIDTHS, triggerWidth: TRIGGER_WIDTH, available: 200, activeIndex: 0 });
++
++  // 88 + 30 for the trigger fits in 200; adding Conversations would not.
++  assert.deepEqual(visible, [0]);
++});
++
++test('keeps the active tab in the row even when it is past the fold', () => {
++  const visible = fitTabsInRow({ widths: WIDTHS, triggerWidth: TRIGGER_WIDTH, available: 200, activeIndex: 3 });
++
++  // Archive is pinned and Projects fills what is left: 88 + 32 + 30 <= 200.
++  assert.deepEqual(visible, [0, 3]);
++});
++
++test('shows the active tab alone when nothing else fits beside it', () => {
++  const visible = fitTabsInRow({ widths: WIDTHS, triggerWidth: TRIGGER_WIDTH, available: 160, activeIndex: 1 });
++
++  assert.deepEqual(visible, [1]);
++});
++
++test('drops from the left onwards rather than picking out whichever tabs fit', () => {
++  const visible = fitTabsInRow({ widths: [124, 30, 30, 30], triggerWidth: TRIGGER_WIDTH, available: 120, activeIndex: -1 });
++
++  // The narrow tabs would each fit on their own, but a strip with a hole in it
++  // reads as broken — the row stops at the first tab that does not fit.
++  assert.deepEqual(visible, []);
++});
+-- 
+2.55.0
+
+
+From 7255ecde9adda95dfdd481539aba7e09e5c6c41f Mon Sep 17 00:00:00 2001
+From: bvn13 <from.github@bvn13.me>
+Date: Thu, 17 Sep 2026 12:47:59 +0300
+Subject: [PATCH 4/4] fix(sidebar): drop the resize handle when the sidebar is
+ hidden
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Hide sidebar swaps the panel for a 48px icon rail, but the region kept the
+stored width pinned on its container, so the rail sat in a 288px box with the
+border and the drag handle still drawn at the far edge — a vertical line down
+the screen next to a sidebar that was supposed to be gone.
+
+The width and the handle now apply only while the full sidebar is on screen.
+The collapsed rail sizes itself again, as it did before the sidebar became
+resizable.
+
+The guard that ends an in-flight drag now keys on whether resizing is available
+at all, so collapsing mid-drag releases the body's userSelect the same way going
+mobile already did.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+---
+ .../ProjectSidebarRegion.tsx                  | 54 +++++++++++--------
+ 1 file changed, 32 insertions(+), 22 deletions(-)
+
+diff --git a/src/modules/project-workspace/ProjectSidebarRegion.tsx b/src/modules/project-workspace/ProjectSidebarRegion.tsx
+index 3e700169..53a95741 100644
+--- a/src/modules/project-workspace/ProjectSidebarRegion.tsx
++++ b/src/modules/project-workspace/ProjectSidebarRegion.tsx
+@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
+ 
+ import { useProjectSidebarState } from '@/modules/project-workspace/context/ProjectsStateContext';
+ import { Sidebar } from '@/modules/sidebar';
++import { useUiPreferences } from '@/shared/context/UiPreferencesContext';
+ import {
+   SIDEBAR_WIDTH_KEYBOARD_STEP,
+   SIDEBAR_WIDTH_MAX,
+@@ -24,6 +25,10 @@ function ProjectSidebarRegion({
+   const { t } = useTranslation('common');
+   const { sidebarOpen, setSidebarOpen, sidebarSharedProps } = useProjectSidebarState();
+   const { width: sidebarWidth, setWidth: setSidebarWidth, resetWidth: resetSidebarWidth } = useSidebarWidth();
++  // Hide sidebar leaves a 48px icon rail behind, which sizes itself — the stored
++  // width and the drag handle only apply while the full sidebar is on screen.
++  const { sidebarVisible } = useUiPreferences();
++  const isSidebarResizable = !isMobile && sidebarVisible;
+   // Drag origin; null while no resize is in progress.
+   const resizeOriginRef = useRef<{ pointerX: number; width: number } | null>(null);
+   const resizeFrameRef = useRef<number | null>(null);
+@@ -91,18 +96,18 @@ function ProjectSidebarRegion({
      }
-   }
- }
-diff --git a/src/i18n/locales/es/common.json b/src/i18n/locales/es/common.json
-index a97ef79..fed2871 100644
---- a/src/i18n/locales/es/common.json
-+++ b/src/i18n/locales/es/common.json
-@@ -264,7 +264,8 @@
-       "showSidebar": "Mostrar barra lateral",
-       "settings": "Ajustes",
-       "updateAvailable": "Actualización disponible",
--      "closeSidebar": "Cerrar barra lateral"
-+      "closeSidebar": "Cerrar barra lateral",
-+      "resizeSidebar": "Redimensionar barra lateral"
+   }, [resetSidebarWidth, setSidebarWidth, sidebarWidth]);
+ 
+-  // Going mobile mid-drag unmounts the separator, so the pointerup that would have
+-  // ended the drag never arrives: the body stays unselectable, and the live origin
+-  // would make a plain hover resize the sidebar once the desktop layout returns.
++  // Going mobile or collapsing mid-drag unmounts the separator, so the pointerup
++  // that would have ended the drag never arrives: the body stays unselectable, and
++  // the live origin would make a plain hover resize the sidebar once it is back.
+   useEffect(() => {
+-    if (!isMobile) return;
++    if (isSidebarResizable) return;
+     resizeOriginRef.current = null;
+     if (resizeFrameRef.current !== null) {
+       window.cancelAnimationFrame(resizeFrameRef.current);
+       resizeFrameRef.current = null;
      }
+     document.body.style.userSelect = '';
+-  }, [isMobile]);
++  }, [isSidebarResizable]);
+ 
+   // A drag interrupted by an unmount must not leave the page unselectable.
+   useEffect(() => () => {
+@@ -112,24 +117,29 @@ function ProjectSidebarRegion({
+ 
+   if (!isMobile) {
+     return (
+-      <div className="relative h-full flex-shrink-0 border-r border-border/50" style={{ width: sidebarWidth }}>
++      <div
++        className="relative h-full flex-shrink-0 border-r border-border/50"
++        style={isSidebarResizable ? { width: sidebarWidth } : undefined}
++      >
+         <Sidebar {...sidebarSharedProps} />
+-        <div
+-          role="separator"
+-          aria-orientation="vertical"
+-          aria-label={t('versionUpdate.ariaLabels.resizeSidebar')}
+-          aria-valuenow={sidebarWidth}
+-          aria-valuemin={SIDEBAR_WIDTH_MIN}
+-          aria-valuemax={SIDEBAR_WIDTH_MAX}
+-          tabIndex={0}
+-          className="absolute inset-y-0 -right-0.5 z-10 w-1 cursor-col-resize hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:outline-none"
+-          onPointerDown={handleResizeStart}
+-          onPointerMove={handleResizeMove}
+-          onPointerUp={handleResizeEnd}
+-          onPointerCancel={handleResizeEnd}
+-          onDoubleClick={resetSidebarWidth}
+-          onKeyDown={handleResizeKeyDown}
+-        />
++        {isSidebarResizable && (
++          <div
++            role="separator"
++            aria-orientation="vertical"
++            aria-label={t('versionUpdate.ariaLabels.resizeSidebar')}
++            aria-valuenow={sidebarWidth}
++            aria-valuemin={SIDEBAR_WIDTH_MIN}
++            aria-valuemax={SIDEBAR_WIDTH_MAX}
++            tabIndex={0}
++            className="absolute inset-y-0 -right-0.5 z-10 w-1 cursor-col-resize hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:outline-none"
++            onPointerDown={handleResizeStart}
++            onPointerMove={handleResizeMove}
++            onPointerUp={handleResizeEnd}
++            onPointerCancel={handleResizeEnd}
++            onDoubleClick={resetSidebarWidth}
++            onKeyDown={handleResizeKeyDown}
++          />
++        )}
+       </div>
+     );
    }
- }
-diff --git a/src/i18n/locales/fr/common.json b/src/i18n/locales/fr/common.json
-index 0418929..5a1ae9c 100644
---- a/src/i18n/locales/fr/common.json
-+++ b/src/i18n/locales/fr/common.json
-@@ -264,7 +264,8 @@
-       "showSidebar": "Afficher la barre latérale",
-       "settings": "Paramètres",
-       "updateAvailable": "Mise à jour disponible",
--      "closeSidebar": "Masquer la barre latérale"
-+      "closeSidebar": "Masquer la barre latérale",
-+      "resizeSidebar": "Redimensionner la barre latérale"
-     }
-   }
- }
-diff --git a/src/i18n/locales/it/common.json b/src/i18n/locales/it/common.json
-index d4706f7..b043b4c 100644
---- a/src/i18n/locales/it/common.json
-+++ b/src/i18n/locales/it/common.json
-@@ -264,7 +264,8 @@
-       "showSidebar": "Mostra barra laterale",
-       "settings": "Impostazioni",
-       "updateAvailable": "Aggiornamento disponibile",
--      "closeSidebar": "Chiudi barra laterale"
-+      "closeSidebar": "Chiudi barra laterale",
-+      "resizeSidebar": "Ridimensiona barra laterale"
-     }
-   }
- }
-diff --git a/src/i18n/locales/ja/common.json b/src/i18n/locales/ja/common.json
-index e1a2c5b..e329725 100644
---- a/src/i18n/locales/ja/common.json
-+++ b/src/i18n/locales/ja/common.json
-@@ -264,7 +264,8 @@
-       "showSidebar": "サイドバーを表示",
-       "settings": "設定",
-       "updateAvailable": "アップデートあり",
--      "closeSidebar": "サイドバーを閉じる"
-+      "closeSidebar": "サイドバーを閉じる",
-+      "resizeSidebar": "サイドバーの幅を変更"
-     }
-   }
- }
-diff --git a/src/i18n/locales/ko/common.json b/src/i18n/locales/ko/common.json
-index ed3f592..446f29f 100644
---- a/src/i18n/locales/ko/common.json
-+++ b/src/i18n/locales/ko/common.json
-@@ -264,7 +264,8 @@
-       "showSidebar": "사이드바 표시",
-       "settings": "설정",
-       "updateAvailable": "업데이트 가능",
--      "closeSidebar": "사이드바 닫기"
-+      "closeSidebar": "사이드바 닫기",
-+      "resizeSidebar": "사이드바 크기 조절"
-     }
-   }
- }
-diff --git a/src/i18n/locales/ru/common.json b/src/i18n/locales/ru/common.json
-index bb50142..b5d8343 100644
---- a/src/i18n/locales/ru/common.json
-+++ b/src/i18n/locales/ru/common.json
-@@ -234,7 +234,8 @@
-       "showSidebar": "Показать боковую панель",
-       "settings": "Настройки",
-       "updateAvailable": "Доступно обновление",
--      "closeSidebar": "Закрыть боковую панель"
-+      "closeSidebar": "Закрыть боковую панель",
-+      "resizeSidebar": "Изменить ширину боковой панели"
-     }
-   }
- }
-diff --git a/src/i18n/locales/tr/common.json b/src/i18n/locales/tr/common.json
-index 76412c3..6bbeda7 100644
---- a/src/i18n/locales/tr/common.json
-+++ b/src/i18n/locales/tr/common.json
-@@ -264,7 +264,8 @@
-       "showSidebar": "Kenar çubuğunu göster",
-       "settings": "Ayarlar",
-       "updateAvailable": "Güncelleme mevcut",
--      "closeSidebar": "Kenar çubuğunu kapat"
-+      "closeSidebar": "Kenar çubuğunu kapat",
-+      "resizeSidebar": "Kenar çubuğunu yeniden boyutlandır"
-     }
-   }
- }
-diff --git a/src/i18n/locales/zh-CN/common.json b/src/i18n/locales/zh-CN/common.json
-index 0c33ff7..54f6afc 100644
---- a/src/i18n/locales/zh-CN/common.json
-+++ b/src/i18n/locales/zh-CN/common.json
-@@ -264,7 +264,8 @@
-       "showSidebar": "显示侧边栏",
-       "settings": "设置",
-       "updateAvailable": "有可用更新",
--      "closeSidebar": "关闭侧边栏"
-+      "closeSidebar": "关闭侧边栏",
-+      "resizeSidebar": "调整侧边栏宽度"
-     }
-   }
- }
-diff --git a/src/i18n/locales/zh-TW/common.json b/src/i18n/locales/zh-TW/common.json
-index 21e425f..ba94715 100644
---- a/src/i18n/locales/zh-TW/common.json
-+++ b/src/i18n/locales/zh-TW/common.json
-@@ -264,7 +264,8 @@
-       "showSidebar": "顯示側邊欄",
-       "settings": "設定",
-       "updateAvailable": "有可用更新",
--      "closeSidebar": "關閉側邊欄"
-+      "closeSidebar": "關閉側邊欄",
-+      "resizeSidebar": "調整側邊欄寬度"
-     }
-   }
- }
 -- 
 2.55.0
 

@@ -42,9 +42,12 @@ without dead buttons. It never reads the host's `localStorage` or its auth token
 - **`+ Add new task`** — creates a draft row; `Enter` saves and `Escape` discards
   it. Clicking away leaves the draft and whatever was typed into it alone. Tasks
   are listed newest first with a compact age badge (`<1m`, `42m`, `3hr`, `6d`).
-- **Rename** — the pencil on hover, a double-click on the task, or `F2`. Blur
+- **Row actions** — clicking the age badge opens a small menu with `Rename` and
+  `Delete`; it is drawn over the tree, so a narrow sidebar spends all of its
+  width on the task title. `Escape` or a click outside closes it.
+- **Rename** — the menu's `Rename`, a double-click on the task, or `F2`. Blur
   saves, `Escape` cancels.
-- **Delete** — the `×` on hover, or `Delete`; both ask for confirmation.
+- **Delete** — the menu's `Delete`, or the `Delete` key; both ask for confirmation.
 - **Attach a project** — expand a task and use `+ Add project` (or
   `+ Attach “<project>”` on a stock host). Projects already attached elsewhere
   are not offered; the backend rejects the race even if two clients try at once.
@@ -55,7 +58,8 @@ Interface language is English throughout.
 
 ## The upstream patches
 
-`patches/` holds three independent patches against host `v1.37.2`. Each one is a
+`patches/` holds three independent patches against host `main`, a few commits
+past the `v1.37.3` release (`0002` and `0003` apply to the tag itself). Each one is a
 generic host feature with no knowledge of this plugin, applies on its own and in
 any order, and is proposed upstream separately — see
 [`patches/README.md`](patches/README.md) and

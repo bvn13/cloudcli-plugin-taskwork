@@ -437,6 +437,8 @@ const CSS = `
 }
 .tw-node:hover { background: var(--tw-accent-soft); }
 .tw-node[aria-selected="true"] { background: var(--tw-accent); color: var(--tw-accent-fg); }
+/* Anchor for the row menu, which is positioned against the row's right edge. */
+.tw-node-task { position: relative; }
 .tw-node-attachment { padding: 6px 8px; }
 .tw-node-attachment[data-clickable="false"] { cursor: default; }
 .tw-node-removed .tw-node-title { color: var(--tw-muted); text-decoration: line-through; }
@@ -471,10 +473,28 @@ const CSS = `
 }
 .tw-node-input:focus { border-color: var(--tw-primary); outline: none; }
 
+/* The age badge is also the row's actions trigger (§9.4). */
 .tw-age {
-  flex: 0 0 auto; color: var(--tw-muted);
-  font-size: 11px; font-variant-numeric: tabular-nums;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto; min-width: 24px; height: 20px; padding: 0 4px;
+  border: none; border-radius: 4px; background: transparent;
+  color: var(--tw-muted); cursor: pointer;
+  font: inherit; font-size: 11px; font-variant-numeric: tabular-nums;
+  transition: background-color .15s, color .15s;
 }
+.tw-age:hover, .tw-age[aria-expanded="true"] { background: var(--tw-accent); color: var(--tw-fg); }
+
+/* Opens over the tree instead of reserving room in the row while it is closed. */
+.tw-menu {
+  position: absolute; top: calc(100% - 4px); right: 4px; z-index: 20;
+  display: flex; flex-direction: column; gap: 2px;
+  min-width: 140px; max-width: calc(100% - 8px); padding: 4px;
+  border: 1px solid var(--tw-border); border-radius: 8px;
+  background: hsl(var(--popover, var(--background, 0 0% 100%)));
+  box-shadow: 0 4px 12px hsl(0 0% 0% / .2);
+  cursor: default;
+}
+.tw-option-danger { color: var(--tw-danger); }
 .tw-chevron {
   display: flex; align-items: center; justify-content: center;
   flex: 0 0 24px; width: 24px; height: 24px; border-radius: 4px;
@@ -745,6 +765,56 @@ function createInlineInput(options) {
         focusSoon(input);
     return input;
 }
+/**
+ * The task row's actions (§9.4), in a drop-down anchored to the age badge.
+ *
+ * They used to be two hover buttons sitting in the row, which cost 48px of row
+ * width whether or not they were visible — width a narrow sidebar spends on the
+ * title instead. The menu is positioned absolutely, so it overlays the tree when
+ * it opens rather than reserving anything while it is closed.
+ */
+function createRowMenu(context, task) {
+    const menu = el('div', {
+        className: 'tw-menu',
+        attrs: { role: 'menu', 'aria-label': `Actions for “${task.title}”`, tabindex: '-1' },
+    });
+    const item = (className, label, glyph, action) => {
+        const button = el('button', {
+            className,
+            attrs: { type: 'button', role: 'menuitem' },
+            children: [glyph, el('span', { text: label })],
+        });
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            action();
+        });
+        menu.appendChild(button);
+        return button;
+    };
+    const rename = item('tw-option', 'Rename', icon(ICON_PENCIL), () => context.callbacks.startRename(task.id));
+    item('tw-option tw-option-danger', 'Delete', icon(ICON_TRASH), () => context.callbacks.requestDelete({ kind: 'task', taskId: task.id }));
+    menu.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape')
+            return;
+        event.preventDefault();
+        event.stopPropagation();
+        context.callbacks.closeMenu(true);
+    });
+    // Leaving by keyboard closes the menu; a click outside is handled by the single
+    // document-level listener owned by the instance (§10), as it is for the picker.
+    menu.addEventListener('focusout', (event) => {
+        // A re-render detaches this menu while its item still holds focus; the
+        // focusout that follows belongs to the old tree and must close nothing.
+        if (!menu.isConnected)
+            return;
+        const next = event.relatedTarget;
+        if (next && menu.contains(next))
+            return;
+        context.callbacks.closeMenu();
+    });
+    requestAnimationFrame(() => rename.focus());
+    return menu;
+}
 /** Subtitle under a task title, mirroring the project row's session count. */
 function attachmentSummary(task) {
     const count = task.attachments.length;
@@ -816,28 +886,37 @@ function createTaskNode(context, task, now) {
             context.callbacks.startRename(task.id);
         });
         row.appendChild(text);
-        // Pencil, trash, then the age badge: the two buttons fade in on hover, and
-        // reserving their width here keeps the badge from shifting as they appear.
-        const rename = iconButton('tw-icon', `Rename task ${task.title}`, icon(ICON_PENCIL));
-        rename.addEventListener('click', (event) => {
-            event.stopPropagation();
-            context.callbacks.startRename(task.id);
+        // The age badge doubles as the actions trigger: rename and delete live in the
+        // drop-down it opens, so the row spends no width on them while it is closed.
+        const menuOpen = context.view.menuTaskId === task.id;
+        const value = el('span', { text: formatCompactAge(task.createdAt, now) });
+        value.setAttribute(AGE_ATTR, task.createdAt);
+        const age = el('button', {
+            className: 'tw-age',
+            title: 'Task actions',
+            attrs: {
+                type: 'button',
+                'aria-haspopup': 'menu',
+                'aria-expanded': String(menuOpen),
+                'aria-label': `Task actions — ${task.title}`,
+            },
+            children: [value],
         });
-        row.appendChild(rename);
-        const remove = iconButton('tw-icon tw-icon-danger', `Delete task ${task.title}`, icon(ICON_TRASH));
-        remove.addEventListener('click', (event) => {
+        age.addEventListener('click', (event) => {
             event.stopPropagation();
-            context.callbacks.requestDelete({ kind: 'task', taskId: task.id });
+            if (menuOpen)
+                context.callbacks.closeMenu(true);
+            else
+                context.callbacks.openMenu(task.id);
         });
-        row.appendChild(remove);
-        const age = el('span', { className: 'tw-age', text: formatCompactAge(task.createdAt, now) });
-        age.setAttribute(AGE_ATTR, task.createdAt);
         row.appendChild(age);
         row.appendChild(el('span', {
             className: 'tw-chevron',
             attrs: { 'aria-hidden': 'true' },
             children: [icon(expanded ? ICON_CHEVRON_DOWN : ICON_CHEVRON_RIGHT)],
         }));
+        if (menuOpen)
+            row.appendChild(createRowMenu(context, task));
         row.addEventListener('click', () => context.callbacks.toggle(task.id));
     }
     return row;
@@ -1168,6 +1247,7 @@ function initialView() {
         draftError: null,
         draftTitle: '',
         editingTaskId: null,
+        menuTaskId: null,
         confirm: null,
         pickerTaskId: null,
         pickerError: null,
@@ -1234,8 +1314,24 @@ function treeContext(instance) {
             setDraftTitle: (title) => { instance.view.draftTitle = title; },
             commitDraft: (title) => { void commitDraft(instance, title); },
             toggle: (taskId) => instance.store.toggleExpanded(taskId),
+            openMenu: (taskId) => {
+                instance.view = { ...instance.view, menuTaskId: taskId };
+                render(instance);
+            },
+            closeMenu: (restoreFocus = false) => {
+                const taskId = instance.view.menuTaskId;
+                if (taskId === null)
+                    return;
+                instance.view = { ...instance.view, menuTaskId: null };
+                render(instance);
+                // The re-render throws away the node that had focus, so Escape (and the
+                // badge closing its own menu) has to hand it back to the rebuilt badge.
+                if (restoreFocus)
+                    focusAgeBadge(instance, taskId);
+            },
+            // Both row actions are reached through the menu, so both close it.
             startRename: (taskId) => {
-                instance.view = { ...instance.view, editingTaskId: taskId };
+                instance.view = { ...instance.view, editingTaskId: taskId, menuTaskId: null };
                 render(instance);
             },
             commitRename: (taskId, title) => { void commitRename(instance, taskId, title); },
@@ -1244,7 +1340,7 @@ function treeContext(instance) {
                 render(instance);
             },
             requestDelete: (target) => {
-                instance.view = { ...instance.view, confirm: target };
+                instance.view = { ...instance.view, confirm: target, menuTaskId: null };
                 render(instance);
             },
             confirmDelete: (target) => { void confirmDelete(instance, target); },
@@ -1268,6 +1364,12 @@ function treeContext(instance) {
             retry: () => { void reload(instance); },
         },
     };
+}
+/** Finds the rebuilt badge of one task; ids go through `dataset`, never a selector. */
+function focusAgeBadge(instance, taskId) {
+    const rows = [...instance.root.querySelectorAll('.tw-node-task')];
+    const row = rows.find((candidate) => candidate.dataset.taskId === taskId);
+    row?.querySelector('.tw-age')?.focus();
 }
 function render(instance) {
     if (instance.disposed)
@@ -1479,15 +1581,25 @@ export function mount(container, api) {
         void loadProjects(instance);
         void loadSessions(instance);
     });
-    // One document-level listener per instance closes an open drop-down on an
-    // outside click; it is removed again in unmount (§10).
+    // One document-level listener per instance closes an open drop-down — the
+    // project picker or a row menu — on an outside click; removed in unmount (§10).
     instance.onDocumentPointerDown = (event) => {
-        if (instance.view.pickerTaskId === null)
+        const { pickerTaskId, menuTaskId } = instance.view;
+        if (pickerTaskId === null && menuTaskId === null)
             return;
-        const target = event.target;
-        if (target && root.contains(target) && target.closest?.('.tw-picker'))
+        const node = event.target;
+        const target = node && root.contains(node) ? node : null;
+        // The age badge toggles its own menu on `click`; closing it here would
+        // reopen it a moment later and the button would never close anything.
+        const inMenu = Boolean(target?.closest?.('.tw-menu') ?? target?.closest?.('.tw-age'));
+        let next = instance.view;
+        if (pickerTaskId !== null && !target?.closest?.('.tw-picker'))
+            next = { ...next, pickerTaskId: null };
+        if (menuTaskId !== null && !inMenu)
+            next = { ...next, menuTaskId: null };
+        if (next === instance.view)
             return;
-        instance.view = { ...instance.view, pickerTaskId: null };
+        instance.view = next;
         render(instance);
     };
     document.addEventListener('pointerdown', instance.onDocumentPointerDown, true);

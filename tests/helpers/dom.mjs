@@ -169,6 +169,14 @@ class FakeElement {
     return false;
   }
 
+  /** True while the node is still reachable from the document, as in the real DOM. */
+  get isConnected() {
+    for (let current = this; current; current = current.parentNode) {
+      if (current === globalThis.document) return true;
+    }
+    return false;
+  }
+
   closest(selector) {
     for (let current = this; current; current = current.parentNode) {
       if (current instanceof FakeElement && matches(current, selector)) return current;
