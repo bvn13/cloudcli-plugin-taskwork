@@ -178,13 +178,26 @@ const CSS = `
 
 /* ── project picker ──────────────────────────────────────────────────── */
 .tw-picker { display: flex; flex-direction: column; gap: 4px; padding: 2px 0; }
-.tw-listbox {
-  display: flex; flex-direction: column; gap: 2px;
-  max-height: 240px; overflow: auto; padding: 4px;
+.tw-dropdown {
+  display: flex; flex-direction: column; gap: 4px; padding: 4px;
   border: 1px solid var(--tw-border); border-radius: 8px;
   background: hsl(var(--popover, var(--background, 0 0% 100%)));
   box-shadow: 0 4px 12px hsl(0 0% 0% / .12);
 }
+.tw-picker-search {
+  width: 100%; height: 30px; padding: 0 8px;
+  border: 1px solid var(--tw-border); border-radius: 6px;
+  background: transparent; color: var(--tw-fg);
+  font: inherit; font-size: 13px;
+}
+.tw-picker-search::placeholder { color: var(--tw-muted); }
+.tw-picker-search:focus { border-color: var(--tw-primary); outline: none; }
+/* The filter stays put; only the options scroll under it. */
+.tw-listbox {
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: 240px; overflow: auto;
+}
+.tw-option[hidden] { display: none; }
 .tw-option {
   display: flex; align-items: center; gap: 8px;
   width: 100%; min-height: 32px; padding: 6px 8px;

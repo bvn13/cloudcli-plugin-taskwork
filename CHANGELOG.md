@@ -13,6 +13,14 @@ refuses to run otherwise.
 - **A task row's actions live in a menu on the age badge.** Clicking the badge
   opens `Rename` and `Delete` over the tree; `Escape`, a click outside or either
   action closes it. The double-click, `F2` and `Delete` routes are unchanged.
+- **The project picker filters as you type.** Its first row is a filter input
+  that matches display names regardless of case; `Enter` attaches the first
+  match and `↓`/`↑` move between the input and the options.
+
+### Fixed
+- **The project picker is reachable under the last task.** It now scrolls itself
+  into view when it opens, and pressing a scrollbar no longer counts as a click
+  outside that closes it.
 
 ### Changed
 - **The task row no longer reserves width for hidden buttons.** Rename and delete

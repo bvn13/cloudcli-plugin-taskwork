@@ -27,6 +27,8 @@ export interface ViewState {
   confirm: ConfirmTarget | null;
   pickerTaskId: string | null;
   pickerError: string | null;
+  /** The picker's filter text — it survives re-renders while the picker is open. */
+  pickerQuery: string;
   /** Roving tabindex: exactly one node in the tree is tabbable (§9.8). */
   activeNodeId: string | null;
 }
@@ -60,6 +62,7 @@ export interface TreeCallbacks {
   cancelDelete(): void;
   openPicker(taskId: string): void;
   closePicker(): void;
+  setPickerQuery(query: string): void;
   attach(taskId: string, project: HostProject): void;
   activateAttachment(taskId: string, projectId: string): void;
   setActiveNode(nodeId: string): void;

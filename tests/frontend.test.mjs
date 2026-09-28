@@ -584,7 +584,7 @@ describe('taskwork frontend', () => {
     container.querySelectorAll('[data-role="add-project"]')[0].click();
     await settle();
 
-    const options = container.querySelectorAll('[role="option"]');
+    const options = container.querySelectorAll('[role="option"]').filter((o) => !o.hidden);
     assert.deepEqual(options.map((o) => o.textContent), ['digital-ui'], 'the locked project is not offered');
 
     options[0].click();
@@ -595,6 +595,71 @@ describe('taskwork frontend', () => {
     assert.match(container.textContent, /digital-ui/);
     assert.match(container.textContent, /New chat/);
     assert.equal(opened.length, 0);
+
+    unmount(container);
+  });
+
+  it('the picker filters projects as you type and Enter takes the first match', async () => {
+    globalThis.localStorage.setItem('taskwork:expanded', JSON.stringify(['tsk_1']));
+
+    const started = [];
+    const host = {
+      async fetch(url) {
+        if (url.startsWith('/api/projects?')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [
+              { projectId: 'proj_a', displayName: 'digital-ui', fullPath: '/home/dev/digital-ui' },
+              { projectId: 'proj_b', displayName: 'Event planning', fullPath: '/home/dev/event' },
+              { projectId: 'proj_c', displayName: 'cloudcli', fullPath: '/home/dev/cloudcli' },
+            ],
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({ sessions: [] }) };
+      },
+      startNewSession: (projectId) => started.push(projectId),
+      openSession() {},
+    };
+
+    const container = dom.document.createElement('div');
+    dom.document.body.appendChild(container);
+    const api = fakeApi({ tasks: [sample()], host });
+
+    mount(container, api);
+    await settle();
+
+    container.querySelectorAll('[data-role="add-project"]')[0].click();
+    await settle();
+    dom.flushFrames();
+
+    const search = container.querySelector('[data-picker-search]');
+    assert.ok(search, 'the first row of the picker is a filter input');
+    assert.equal(dom.document.activeElement, search, 'the filter takes focus on open');
+
+    const shown = () => container.querySelectorAll('[role="option"]')
+      .filter((o) => !o.hidden).map((o) => o.textContent);
+    assert.deepEqual(shown(), ['cloudcli', 'digital-ui', 'Event planning']);
+
+    search.value = 'EVENT';
+    fire(search, 'input');
+    assert.deepEqual(shown(), ['Event planning'], 'matching ignores case');
+
+    search.value = 'nothing like it';
+    fire(search, 'input');
+    assert.deepEqual(shown(), ['No matching projects']);
+
+    // The query survives a re-render caused by something else.
+    search.value = 'ui';
+    fire(search, 'input');
+    api.emitContext({});
+    await settle();
+    const rebuilt = container.querySelector('[data-picker-search]');
+    assert.equal(rebuilt.value, 'ui');
+
+    fire(rebuilt, 'keydown', { key: 'Enter' });
+    await settle();
+    assert.deepEqual(started, ['proj_a']);
 
     unmount(container);
   });

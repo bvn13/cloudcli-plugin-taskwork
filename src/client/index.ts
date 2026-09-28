@@ -48,6 +48,7 @@ function initialView(): ViewState {
     confirm: null,
     pickerTaskId: null,
     pickerError: null,
+    pickerQuery: '',
     activeNodeId: null,
   };
 }
@@ -156,14 +157,20 @@ function treeContext(instance: Instance): TreeContext {
         render(instance);
       },
       openPicker: (taskId) => {
-        instance.view = { ...instance.view, pickerTaskId: taskId, pickerError: null };
+        instance.view = { ...instance.view, pickerTaskId: taskId, pickerError: null, pickerQuery: '' };
         render(instance);
+        // The drop-down grows the tree below the fold when it opens under the
+        // last task; scroll it into view rather than leave it hidden there.
+        requestAnimationFrame(() => {
+          instance.root.querySelector<HTMLElement>('.tw-dropdown')?.scrollIntoView?.({ block: 'nearest' });
+        });
       },
       closePicker: () => {
         if (instance.view.pickerTaskId === null) return;
-        instance.view = { ...instance.view, pickerTaskId: null };
+        instance.view = { ...instance.view, pickerTaskId: null, pickerQuery: '' };
         render(instance);
       },
+      setPickerQuery: (query) => { instance.view.pickerQuery = query; },
       attach: (taskId, project) => { void attachProject(instance, taskId, project); },
       activateAttachment: (taskId, projectId) => { void activateAttachment(instance, taskId, projectId); },
       setActiveNode: (nodeId) => { instance.view.activeNodeId = nodeId; },
@@ -177,6 +184,23 @@ function focusAgeBadge(instance: Instance, taskId: string): void {
   const rows = [...instance.root.querySelectorAll<HTMLElement>('.tw-node-task')];
   const row = rows.find((candidate) => candidate.dataset.taskId === taskId);
   row?.querySelector<HTMLElement>('.tw-age')?.focus();
+}
+
+/**
+ * A press on a scrollbar targets the scrolling element itself, but lands
+ * outside its client box — the scrollbar is the part the box does not cover.
+ */
+function onScrollbar(event: Event): boolean {
+  const target = event.target as HTMLElement | null;
+  if (!('clientX' in event) || !target?.getBoundingClientRect) return false;
+  const { clientX, clientY } = event as MouseEvent;
+  const rect = target.getBoundingClientRect();
+  const right = rect.left + target.clientLeft + target.clientWidth;
+  const bottom = rect.top + target.clientTop + target.clientHeight;
+  // Only a scrolling element has a scrollbar; inline elements report a zero client box.
+  const scrollsY = target.scrollHeight > target.clientHeight;
+  const scrollsX = target.scrollWidth > target.clientWidth;
+  return (scrollsY && clientX >= right) || (scrollsX && clientY >= bottom);
 }
 
 function render(instance: Instance): void {
@@ -238,7 +262,7 @@ async function attachProject(instance: Instance, taskId: string, project: HostPr
     return;
   }
 
-  instance.view = { ...instance.view, pickerTaskId: null, pickerError: null };
+  instance.view = { ...instance.view, pickerTaskId: null, pickerError: null, pickerQuery: '' };
 
   if (instance.caps.canNavigate) {
     // Deferred binding: the host opens a new chat, the attachment stays
@@ -415,6 +439,9 @@ export function mount(container: HTMLElement, api: PluginApi): void {
   instance.onDocumentPointerDown = (event: Event) => {
     const { pickerTaskId, menuTaskId } = instance.view;
     if (pickerTaskId === null && menuTaskId === null) return;
+    // Grabbing a scrollbar is how one reaches a drop-down below the fold, not a
+    // click away from it.
+    if (onScrollbar(event)) return;
 
     const node = event.target as Node | null;
     const target = node && root.contains(node) ? (node as HTMLElement) : null;
