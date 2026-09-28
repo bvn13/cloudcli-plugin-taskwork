@@ -6,8 +6,10 @@ Patch: [`patches/0001-feat-resizable-sidebar.patch`](../patches/0001-feat-resiza
 
 > **Опубликован:** PR https://github.com/siteboon/claudecodeui/pull/1189,
 > issue https://github.com/siteboon/claudecodeui/issues/1188 (оба 2026-08-21, открыты).
-> PR числится черновиком — CodeRabbit пропустил ревью с пометкой «Draft detected».
-> Пока он в этом состоянии, ни бот, ни мейнтейнеры его не смотрят.
+> **Влит в `main` 2026-09-21** squash-коммитом `6c51fcaa` — вместе со складыванием
+> чипов сайдбара в «…» (`SidebarModeTabs`, `useTabOverflow`). Ветка
+> `feat/resizable-sidebar` больше не нужна для PR; патч `0001` остаётся только для
+> хостов старше этого коммита.
 
 ---
 

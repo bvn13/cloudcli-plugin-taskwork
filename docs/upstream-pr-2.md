@@ -1,6 +1,6 @@
 # PR-2 — `feat(plugins): give plugins an authenticated way to reach the host API`
 
-Target: `siteboon/claudecodeui`, base tag `v1.37.2`.
+Target: `siteboon/claudecodeui`, base branch `main` (in sync with `3cc73ede`, 2026-09-28).
 Branch: `github:bvn13/claudecodeui@feat/plugin-host-api`.
 Patch: [`patches/0002-feat-plugin-host-api.patch`](../patches/0002-feat-plugin-host-api.patch).
 
@@ -9,6 +9,10 @@ Patch: [`patches/0002-feat-plugin-host-api.patch`](../patches/0002-feat-plugin-h
 > Ревью CodeRabbit нашло присваивание рефа во время рендера — исправлено
 > отдельным коммитом в той же ветке (`fix(plugins): assign the host api ref
 > after commit, not during render`).
+>
+> 2026-09-28: в ветку слит `main` (`3cc73ede`) — голова PR теперь `226e067b`.
+> Конфликты только в `ProjectMainRegion.tsx` и `WorkspaceMain.tsx`: `main` добавил
+> проп `onRenameSession` рядом с нашим `onStartNewSession`, оставлены оба.
 
 ## Problem
 
